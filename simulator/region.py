@@ -1,4 +1,5 @@
 import copy
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Self, TYPE_CHECKING
 
 from core.service.coordinates import Coordinates
@@ -39,16 +40,31 @@ class Region(PhysicalObject):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.coordinates})"
 
-    def on_update(self, time: int, regions_2: "Regions2", bases: "BaseSet") -> Any:
+    def on_update(
+            self,
+            time: int,
+            regions_2: "Regions2",
+            bases: "BaseSet",
+            thread_executor: ThreadPoolExecutor
+    ) -> list[Future]:
+        futures = []
         for base in self.bases:
             if time % base.act_period == base.act_remainder:
-                base.on_update(time, regions_2)
+                futures.append(thread_executor.submit(base.on_update, time, regions_2))
         for creature in self.creatures:
             if time % creature.act_period == creature.act_remainder:
-                creature.on_update(time, regions_2, bases)
+                futures.append(thread_executor.submit(creature.on_update, time, regions_2, bases))
 
-    def after_update(self) -> Any:
-        pass
+        return futures
+
+    def after_update(self, time: int) -> Any:
+        # todo: make it with threads
+        for base in self.bases:
+            if time % base.act_period == base.act_remainder:
+                base.after_update()
+        for creature in self.creatures:
+            if time % creature.act_period == creature.act_remainder:
+                creature.after_update()
 
     def init(self, tiles_2: "Tiles2", regions_2: "Regions2") -> Any:
         self.projections = {}

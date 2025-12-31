@@ -1,7 +1,9 @@
 import datetime
 import math
+import os
 import random
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable
 
 from arcade import SpriteList
@@ -189,6 +191,8 @@ class World(Object):
         self.regions_2: Regions2 = defaultdict(dict)
         self.region_set = set[Region]()
         self.map = Map(map_width, map_height)
+
+        self.thread_executor = ThreadPoolExecutor(os.cpu_count())
         self.prepare()
 
     def start(self) -> None:
@@ -220,15 +224,20 @@ class World(Object):
             center_tile.region.creatures.append(creature)
 
     def stop(self) -> None:
-        pass
+        self.thread_executor.shutdown()
 
     def on_update(self, deta_time: int) -> None:
         self.age += deta_time
+        futures = []
         # todo: сделать обход, минимизирующий обработку соседних регионов одновременно при параллельной обработке
         for region in self.region_set:
-            region.on_update(self.age, self.regions_2, self.bases)
+            futures.extend(region.on_update(self.age, self.regions_2, self.bases, self.thread_executor))
+        for future in as_completed(futures):
+            # это нужно для проброса исключения из потока
+            future.result()
+
         for region in self.region_set:
-            region.after_update()
+            region.after_update(self.age)
 
     # https://www.redblobgames.com/grids/hexagons/#map-storage
     # todo: добавить сохранение/кэширование карты и соседей для более быстрой загрузки

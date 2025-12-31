@@ -71,14 +71,6 @@ class Coordinates:
         assert a + b + c == 0, "Coordinates are not correct"
         return cls(a, b)
 
-    @property
-    def length_2(self) -> float:
-        return self.distance_2(ABSOLUTE_CENTER)
-
-    @property
-    def length_3(self) -> int:
-        return self.distance_3(ABSOLUTE_CENTER)
-
     def in_radius(self, radius: int, offset: Self = None) -> bool:
         if offset is None:
             absolute = self
@@ -198,7 +190,7 @@ class Coordinates:
             if cycled:
                 other_mirrors = self.get_mirror_centers(other)
                 distances = self.get_sorted_distances(other_mirrors)
-                value = min(distances[0][1], self.distance_3(other, False))
+                value = min(distances[0][1], self.distance_3(other))
             else:
                 value = (abs(self.a - other.a) + abs(self.b - other.b) + abs(self.c - other.c)) // 2
             self.distance_3_cache[cache_key] = value

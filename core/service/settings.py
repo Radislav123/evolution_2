@@ -22,3 +22,7 @@ class Settings(Singleton):
 
         self.RESOURCES_FOLDER = "resources"
         self.IMAGES_FOLDER = f"{self.RESOURCES_FOLDER}/images"
+
+        self.PAST_PREFIX = "past"
+        self.PRESENT_PREFIX = "present"
+        self.FUTURE_PREFIX = "future"

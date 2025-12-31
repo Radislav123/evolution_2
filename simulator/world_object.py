@@ -1,5 +1,5 @@
 import random
-from typing import Any, Iterable, TYPE_CHECKING
+from typing import Any, Iterable, Optional, TYPE_CHECKING
 
 from core.service.object import PhysicalObject, ProjectionObject
 from simulator.action import Move
@@ -40,3 +40,10 @@ class WorldObject(PhysicalObject):
             projection = self.projection_class()
             self.projections[tile] = projection
             projection.tile_projection = tile.projection
+
+    def after_update(self) -> Any:
+        for key in self.__dict__:
+            if key.startswith(self.settings.FUTURE_PREFIX):
+                present_key = key.replace(self.settings.FUTURE_PREFIX, self.settings.PRESENT_PREFIX)
+                setattr(self, present_key, getattr(self, key))
+                setattr(self, key, None)

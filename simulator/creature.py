@@ -1,9 +1,10 @@
 import random
-from typing import Any, Sequence, TYPE_CHECKING, Union
+from typing import Any, Optional, Sequence, TYPE_CHECKING, Union
 
 from arcade import color
 
 from core.service.coordinates import Coordinates
+from core.service.threads.lock import Lock
 from simulator.tile import Tile
 from simulator.world_object import WorldObject, WorldObjectProjection
 
@@ -17,12 +18,30 @@ class CreatureProjection(WorldObjectProjection):
     main_color = color.APRICOT
 
 
+THREAD_SAFE_ATTRIBUTES = {
+    "id",
+    "age",
+    "inited",
+    "scream_radius",
+    "hear_radius",
+    "act_period",
+    "act_remainder",
+    # атрибуты ниже не должны быть здесь, но я не хочу продумывать их изменения
+    "heard_distance",
+    "heard_tile",
+    "start_base",
+    "finish_base",
+    "center_tile"
+}
+
+
 class Creature(WorldObject):
     projection_class = CreatureProjection
     projections: dict["Tile", projection_class]
     is_creature = True
 
     def __init__(self, center_tile: "Tile", time: int, bases: Sequence["Base"]) -> None:
+        self.inited = False
         super().__init__(center_tile, time)
         if len(bases) > 1:
             self.start_base, self.finish_base = random.sample(bases, 2)
@@ -49,6 +68,26 @@ class Creature(WorldObject):
             self.is_scout = False
 
         self.change_direction_period = 1
+
+        self.thread_lock = Lock()
+        self.inited = True
+
+    def __setattr__(self, key: str, value: Any) -> Any:
+        if (key not in THREAD_SAFE_ATTRIBUTES
+                and not key.startswith(super().__getattribute__("settings").PRESENT_PREFIX)
+                and super().__getattribute__("inited")):
+            super().__getattribute__("thread_lock").check_thread(f"{key}")
+        return super().__setattr__(key, value)
+
+    def __getattribute__(self, key: str) -> Any:
+        if (key not in THREAD_SAFE_ATTRIBUTES
+                and not key.startswith(super().__getattribute__("settings").PRESENT_PREFIX)
+                and super().__getattribute__("inited")):
+            super().__getattribute__("thread_lock").check_thread(f"{key}")
+        return super().__getattribute__(key)
+
+    # todo: write it?
+    # def __delattr__(self, item):
 
     def calculate_direction(self) -> None:
         a = self.direction_vector.a - self.path_vector.a
@@ -114,7 +153,7 @@ class Creature(WorldObject):
         if blocker == self.finish_base:
             self.bases_reach_counter[self.finish_base] = -delta_time
             self.start_base = self.finish_base
-            while len(bases) > 1 and self.finish_base == self.start_base:
+            while len(bases) > 1 and (self.finish_base == self.start_base or self.finish_base is None):
                 self.finish_base = random.choice(bases)
             self.turn_around()
         # Попытка обойти
@@ -144,24 +183,29 @@ class Creature(WorldObject):
             self.reflect_direction()
 
     def on_update(self, time: int, regions_2: "Regions2", bases: "BaseSet") -> Any:
-        delta_time = time - self.last_acting_time
-        self.last_acting_time = time
+        with self.thread_lock:
+            delta_time = time - self.last_acting_time
+            self.last_acting_time = time
 
-        old_coordinates = self.center_tile.coordinates
-        if self.is_scout:
-            self.act_scout(time, delta_time)
-        else:
-            self.act(time, delta_time, bases)
-        self.path_vector += self.center_tile.coordinates - old_coordinates
+            old_coordinates = self.center_tile.coordinates
+            if self.is_scout:
+                self.act_scout(time, delta_time)
+            else:
+                self.act(time, delta_time, bases)
+            self.path_vector += self.center_tile.coordinates - old_coordinates
 
-        self.cry(regions_2)
-        self.age += delta_time
-        self.bases_reach_counter = {base: counter + delta_time for base, counter in self.bases_reach_counter.items()}
+            self.cry(regions_2)
+            self.age += delta_time
+            self.bases_reach_counter = {base: counter + delta_time
+                                        for base, counter in self.bases_reach_counter.items()}
 
     def cry(self, regions_2: "Regions2") -> None:
         for other in self.center_tile.region.get_creatures(self.scream_radius, regions_2):
             if self.id != other.id:
-                crier_distance = self.center_tile.coordinates.distance_3(other.center_tile.coordinates, True)
+                crier_distance = self.center_tile.coordinates.distance_3(
+                    other.center_tile.coordinates,
+                    True
+                )
                 base_distance = crier_distance + self.bases_reach_counter[other.finish_base]
                 if (crier_distance <= other.hear_radius and
                         (other.heard_distance is None or base_distance < other.heard_distance)):
