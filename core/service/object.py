@@ -9,7 +9,7 @@ from core.service.settings import Settings
 from core.service.texture import Texture
 
 
-class ThirdPartyMixin:
+class Mixin:
     settings = Settings()
     logger = Logger(__qualname__)
 

@@ -12,13 +12,11 @@ from arcade.future.input import MouseButtons
 from arcade.types import Color
 from matplotlib import pyplot
 
-from core.service.object import ThirdPartyMixin
-from simulator.creature import Creature
-from simulator.tile import Tile, TileProjection
+from core.service.object import Mixin
 from simulator.world import World
 
 
-class TextTab(arcade.gui.UIFlatButton, ThirdPartyMixin):
+class TextTab(arcade.gui.UIFlatButton, Mixin):
     default_style = {
         "normal": arcade.gui.UIFlatButton.UIStyle(
             bg = color.BLACK
@@ -130,7 +128,7 @@ class DrawGraphsTab(TextTab):
             pass
 
 
-class TextTabContainer(ThirdPartyMixin):
+class TextTabContainer(Mixin):
     class Corner(arcade.gui.UIAnchorLayout):
         children: list[TextTab]
 
@@ -204,7 +202,7 @@ class TextTabContainer(ThirdPartyMixin):
                         tab.tab_label.text = tab.tab_label._text()
 
 
-class UIManager(arcade.gui.UIManager, ThirdPartyMixin):
+class UIManager(arcade.gui.UIManager, Mixin):
     def add_tabs(self, tabs: TextTabContainer) -> TextTabContainer:
         for corner in tabs.corners:
             self.add(corner)
@@ -218,7 +216,7 @@ class UIManager(arcade.gui.UIManager, ThirdPartyMixin):
                 tab.tab_label.set_position()
 
 
-class PerformanceGraph(arcade.PerfGraph, ThirdPartyMixin):
+class PerformanceGraph(arcade.PerfGraph, Mixin):
     def __init__(self, window: "Window", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -304,7 +302,7 @@ class PerformanceGraph(arcade.PerfGraph, ThirdPartyMixin):
             arcade.draw_line_strip(point_list, self.line_color)
 
 
-class Window(arcade.Window, ThirdPartyMixin):
+class Window(arcade.Window, Mixin):
     # desired_tps = int(1 / update_rate)
     # update_rate = 1 / tps
     desired_tps: int
@@ -315,7 +313,7 @@ class Window(arcade.Window, ThirdPartyMixin):
     draw_tiles_tab: TextTab
     draw_objects_tab: TextTab
     draw_graphs_tab: TextTab
-    creature_tps_statistics: [Creature, int] = defaultdict(list)
+    creature_tps_statistics: dict["Creature", int] = defaultdict(list)
 
     def __init__(self, width: int, height: int) -> None:
         super().__init__(width, height, center_window = True)
@@ -340,13 +338,10 @@ class Window(arcade.Window, ThirdPartyMixin):
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
     def start(self) -> None:
-        self.world = World(10, 5, 500, 5, self.width, self.height)
+        self.world = World(10, 10)
         self.world.start()
 
-        creature_projections = (y for x in self.world.creatures for y in x.projections.values())
-        base_projections = (y for x in self.world.bases for y in x.projections.values())
-        tile_projections = (x.projection for x in self.world.tile_set)
-        self.world.map.start(creature_projections, base_projections, tile_projections)
+        self.world.map.start()
 
         self.construct_tabs()
         self.construct_graphs()
@@ -479,11 +474,9 @@ class Window(arcade.Window, ThirdPartyMixin):
         self.ui_manager.add_tabs(self.tab_container)
 
     def count_resources(self) -> None:
-        if self.base_resources_tab or self.world_resources_tab:
-            self.base_resources = sum((x.resources for x in self.world.bases))
-
         if self.creature_resources_tab or self.world_resources_tab:
-            self.creature_resources = sum((x.resources for x in self.world.creatures))
+            pass
+            # self.creature_resources = sum((x.resources for x in self.world.creatures))
 
     def count_statistics(self) -> None:
         self.timings["on_update"].append(self.timestamp - self.previous_timestamp)
@@ -494,14 +487,15 @@ class Window(arcade.Window, ThirdPartyMixin):
             self.tps = self.desired_tps
         self.timings["tps"].append(self.tps)
 
-        self.creature_tps_statistics[len(self.world.creatures)].append(self.tps)
+        # self.creature_tps_statistics[len(self.world.creatures)].append(self.tps)
+        self.creature_tps_statistics[1].append(self.tps)
 
     def on_draw(self) -> None:
         self.clear()
 
         draw_objects = bool(self.draw_objects_tab)
         draw_tiles = bool(self.draw_tiles_tab)
-        self.world.map.on_draw(draw_objects, draw_objects, draw_tiles)
+        self.world.map.on_draw()
 
         self.ui_manager.draw()
         self.tab_container.draw_all()
@@ -527,28 +521,6 @@ class Window(arcade.Window, ThirdPartyMixin):
         self.desired_tps = tps
         self.set_update_rate(1 / tps)
 
-    @staticmethod
-    def get_tile(tile: Tile) -> set[TileProjection]:
-        projections = set()
-        projections.add(tile.projection)
-        return projections
-
-    @staticmethod
-    def get_neighbours(tile: Tile) -> set[TileProjection]:
-        return set(x.projection for x in tile.neighbours)
-
-    @staticmethod
-    def get_object(tile: Tile) -> set[TileProjection]:
-        return set(x.projection for x in tile.object.tiles)
-
-    @staticmethod
-    def get_region(tile: Tile) -> set[TileProjection]:
-        return set(x.projection for x in tile.region.tiles)
-
-    @staticmethod
-    def get_region_neighbours(tile: Tile) -> set[TileProjection]:
-        return set(y.projection for x in tile.region.neighbours for y in x.tiles)
-
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if not self.mouse_dragged and self.draw_tiles_tab:
             if button == MouseButtons.LEFT.value:
@@ -568,22 +540,6 @@ class Window(arcade.Window, ThirdPartyMixin):
                     get_region_neighbours = False
                     assert get_tile + get_object + get_region + get_neighbours + get_region_neighbours == 1
 
-                    if get_tile:
-                        projections = self.get_tile(tile)
-                    elif get_neighbours:
-                        projections = self.get_neighbours(tile)
-                    elif get_object:
-                        projections = self.get_object(tile)
-                    elif get_region:
-                        projections = self.get_region(tile)
-                    elif get_region_neighbours:
-                        projections = self.get_region_neighbours(tile)
-                    else:
-                        raise ValueError("There is nothing to select.")
-
-                    if old_projections != projections:
-                        for projection in projections:
-                            projection.on_click(self.world.map)
                 except KeyError:
                     pass
             elif button == MouseButtons.RIGHT.value:
