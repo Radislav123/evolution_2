@@ -337,7 +337,7 @@ class Window(arcade.Window, Mixin):
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
     def start(self) -> None:
-        self.world = World(3, 3, 3)
+        self.world = World(5, 5, 5)
         self.world.start()
 
         self.world.projection.start()

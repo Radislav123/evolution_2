@@ -5,13 +5,3 @@ class Coordinates:
         x = a + b / 4
         y = c + b / 3
         return x, y
-
-    @staticmethod
-    # Возвращает список видимых граней
-    def visible_faces() -> tuple[int, int, int]:
-        return 0, 1, 2
-
-    @staticmethod
-    # Возвращает список видимых граней
-    def not_visible_faces() -> tuple[int, int, int]:
-        return 3, 4, 5
