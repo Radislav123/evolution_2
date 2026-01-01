@@ -1,4 +1,3 @@
-import copy
 import enum
 import time
 from collections import defaultdict, deque
@@ -430,7 +429,7 @@ class Window(arcade.Window, Mixin):
         # правый верхний угол
         # возраст мира
         self.tab_container.corners[3].add(
-            TextTab(lambda: self.world.age, self.settings.WORLD_AGE_TAB_UPDATE_PERIOD)
+            TextTab(lambda: str(self.world.age), self.settings.WORLD_AGE_TAB_UPDATE_PERIOD)
         )
         # счетчик tps
         self.tab_container.corners[3].add(

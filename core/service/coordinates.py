@@ -1,14 +1,17 @@
-import math
-
-
-COS_30 = math.cos(1 / 6)
-SIN_30 = math.sin(1 / 6)
-
-
 class Coordinates:
     # Отображение точки в трехмерном пространстве на двумерное
     @staticmethod
     def convert_3_to_2(a: float, b: float, c: float) -> tuple[float, float]:
-        x = a + b / 2
-        y = c + b / 2
+        x = a + b / 4
+        y = c + b / 3
         return x, y
+
+    @staticmethod
+    # Возвращает список видимых граней
+    def visible_faces() -> tuple[int, int, int]:
+        return 0, 1, 2
+
+    @staticmethod
+    # Возвращает список видимых граней
+    def not_visible_faces() -> tuple[int, int, int]:
+        return 3, 4, 5

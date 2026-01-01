@@ -14,7 +14,8 @@ from core.service.object import Object, ProjectionObject
 
 # служит только как хранилище настроек
 class Tile:
-    default_color = (0, 0, 0, 255)
+    visible_color = (0, 0, 0, 50)
+    not_visible_color = (0, 0, 0, 10)
     default_width = 1
 
 
@@ -34,7 +35,9 @@ class WorldProjection(ProjectionObject):
         self.min_coeff = 0.01
         self.max_coeff = 200
 
-        self.tiles = np.array([defaultdict(int) for _ in range(world.material.size)]).reshape(world.shape)
+        # В каждой ячейке лежит массив с гранями
+        # [face_0, face_1, face_2, face_3, face_4, face_5]
+        self.tiles = np.array([lambda: [None] * 6 for _ in range(world.material.size)]).reshape(world.shape)
         self.tiles_set = arcade.shape_list.ShapeElementList()
 
         self.centralize()
@@ -67,15 +70,25 @@ class WorldProjection(ProjectionObject):
                     ]
 
                     # обход по граням
-                    indexes = [
-                        0, 1, 2, 3, 7, 6, 5, 4, 0,
-                        0, 3, 7, 4, 5, 1, 2, 6
+                    faces = [
+                        [0, 4, 7, 3],
+                        [4, 5, 6, 7],
+                        [3, 7, 6, 2],
+                        [0, 4, 5, 1],
+                        [0, 1, 2, 3],
+                        [1, 5, 6, 2]
                     ]
-                    points = [points[index] for index in indexes]
-                    tile = arcade.shape_list.create_line_strip(points, Tile.default_color, Tile.default_width)
+                    faces = [
+                        arcade.shape_list.create_line_loop(
+                            [points[point_index] for point_index in face],
+                            Tile.visible_color if index in Coordinates.visible_faces() else Tile.not_visible_color,
+                            Tile.default_width
+                        ) for index, face in enumerate(faces)
+                    ]
 
-                    self.tiles_set.append(tile)
-                    self.tiles[a, b, c] = tile
+                    for face in faces:
+                        self.tiles_set.append(face)
+                    self.tiles[a, b, c] = faces
         self.inited = True
 
     def reset(self) -> None:
