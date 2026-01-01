@@ -1,7 +1,11 @@
+# project files
 .idea/
 venv/
 
+# generated
 logs/
+profiles/
 statistics/
 
+# temporary
 temp*
