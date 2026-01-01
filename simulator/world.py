@@ -65,8 +65,8 @@ class WorldProjection(ProjectionObject):
                     # coeff and offset
                     points = [
                         (
-                            (point[0] + offset_x) * self.coeff + self.offset_x,
-                            (point[1] + offset_y) * self.coeff + self.offset_y
+                            (point[0] + offset_x) * self.coeff,
+                            (point[1] + offset_y) * self.coeff
                         ) for point in points
                     ]
 
@@ -174,7 +174,7 @@ class WorldProjection(ProjectionObject):
     def change_offset(self, offset_x: int, offset_y: int) -> None:
         self.offset_x += offset_x
         self.offset_y += offset_y
-        self.reset()
+        self.tiles_set.position = (self.offset_x, self.offset_y)
 
 
 class World(Object):
