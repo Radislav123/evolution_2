@@ -313,7 +313,7 @@ class Window(arcade.Window, Mixin):
     draw_tiles_tab: TextTab
     draw_objects_tab: TextTab
     draw_graphs_tab: TextTab
-    creature_tps_statistics: dict["Creature", int] = defaultdict(list)
+    creature_tps_statistics: dict["Creature", list[int]] = defaultdict(list)
 
     def __init__(self, width: int, height: int) -> None:
         super().__init__(width, height, center_window = True)
@@ -338,10 +338,10 @@ class Window(arcade.Window, Mixin):
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
     def start(self) -> None:
-        self.world = World(10, 10)
+        self.world = World(3, 3, 3)
         self.world.start()
 
-        self.world.map.start()
+        self.world.projection.start()
 
         self.construct_tabs()
         self.construct_graphs()
@@ -495,7 +495,7 @@ class Window(arcade.Window, Mixin):
 
         draw_objects = bool(self.draw_objects_tab)
         draw_tiles = bool(self.draw_tiles_tab)
-        self.world.map.on_draw()
+        self.world.projection.on_draw(draw_tiles)
 
         self.ui_manager.draw()
         self.tab_container.draw_all()
@@ -524,45 +524,16 @@ class Window(arcade.Window, Mixin):
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if not self.mouse_dragged and self.draw_tiles_tab:
             if button == MouseButtons.LEFT.value:
-                old_projections = copy.copy(self.world.map.selected_tiles)
-                deselect = True
-                if old_projections is not None and deselect:
-                    for projection in old_projections:
-                        projection.deselect(self.world.map)
-
-                position = self.world.map.point_to_coordinates(x, y)
-                try:
-                    tile = self.world.tiles_2[position.x][position.y]
-                    get_tile = False
-                    get_neighbours = True
-                    get_object = False
-                    get_region = False
-                    get_region_neighbours = False
-                    assert get_tile + get_object + get_region + get_neighbours + get_region_neighbours == 1
-
-                except KeyError:
-                    pass
-            elif button == MouseButtons.RIGHT.value:
-                position = self.world.map.point_to_coordinates(x, y)
-                try:
-                    tile = self.world.tiles_2[position.x][position.y]
-                    print(tile)
-                except KeyError:
-                    pass
+                print(x, y)
 
         self.mouse_dragged = False
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> bool | None:
         if buttons & MouseButtons.LEFT.value:
-            self.world.map.change_offset(dx, dy)
-        if buttons & MouseButtons.RIGHT.value:
-            if dx:
-                self.world.map.change_rotation(dx)
-            if dy:
-                self.world.map.change_tilt(dy)
+            self.world.projection.change_offset(dx, dy)
         self.mouse_dragged = True
         return None
 
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> bool | None:
-        self.world.map.change_coeff(x, y, scroll_y + scroll_x)
+        self.world.projection.change_coeff(x, y, scroll_y + scroll_x)
         return None
