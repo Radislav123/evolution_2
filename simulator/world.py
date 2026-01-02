@@ -23,85 +23,102 @@ class Tile:
 
 
 class WorldProjection(ProjectionObject):
+    # {(coeff, offset_x, offset_y): tiles_set}
+    tiles_cache: dict[float, tuple[np.ndarray, arcade.shape_list.ShapeElementList]] = {}
+    calculate_edges = False
+
     def __init__(self, world: World) -> None:
         super().__init__()
         self.world = world
 
         # соотносится с центром окна
-        self.offset_x: float | None = None
-        self.offset_y: float | None = None
+        self.offset_x: int = 0
+        self.offset_y: int = 0
 
         # множитель размера отображения мира
         self.coeff: float | None = None
         self.min_coeff = 0.01
         self.max_coeff = 200
+        self.coeff_round_digits = 0
 
         # В каждой ячейке лежит массив с гранями
         # [face_0, face_1, face_2, face_3, face_4, face_5]
         self.tiles = np.array([lambda: [None] * 6 for _ in range(world.material.size)]).reshape(world.shape)
         self.tiles_set = arcade.shape_list.ShapeElementList()
 
-        self.centralize()
         self.inited = False
+        self.centralize()
 
     def init(self) -> Any:
-        for a in range(self.world.depth):
-            for b in range(self.world.height):
-                for c in range(self.world.depth):
-                    offset_x, offset_y = Coordinates.convert_3_to_2(a, b, c)
-                    points = (
-                        # (a, b, c)
-                        (0, 0, 0),
-                        (0, 1, 0),
-                        (1, 1, 0),
-                        (1, 0, 0),
-                        (0, 0, 1),
-                        (0, 1, 1),
-                        (1, 1, 1),
-                        (1, 0, 1)
-                    )
-                    # (x, y)
-                    points = [Coordinates.convert_3_to_2(*point) for point in points]
-                    # coeff and offset
-                    points = [
-                        (
-                            (point[0] + offset_x) * self.coeff,
-                            (point[1] + offset_y) * self.coeff
-                        ) for point in points
-                    ]
+        key = round(self.coeff, self.coeff_round_digits)
+        if key not in self.tiles_cache:
+            points = (
+                # (a, b, c)
+                (0, 0, 0),
+                (0, 1, 0),
+                (1, 1, 0),
+                (1, 0, 0),
+                (0, 0, 1),
+                (0, 1, 1),
+                (1, 1, 1),
+                (1, 0, 1)
+            )
+            # обход по граням
+            face_indexes = [
+                [0, 4, 7, 3],
+                [4, 5, 6, 7],
+                [3, 7, 6, 2],
+                [0, 4, 5, 1],
+                [0, 1, 2, 3],
+                [1, 5, 6, 2]
+            ]
+            tiles = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
+            tiles_set = arcade.shape_list.ShapeElementList()
+            for a in range(self.world.depth):
+                for b in range(self.world.height):
+                    for c in range(self.world.depth):
+                        offset_x, offset_y = Coordinates.convert_3_to_2(a, b, c)
+                        # (x, y)
+                        tile_points = [Coordinates.convert_3_to_2(*point) for point in points]
+                        # coeff and offset
+                        tile_points = [
+                            (
+                                (point[0] + offset_x) * self.coeff,
+                                (point[1] + offset_y) * self.coeff
+                            ) for point in tile_points
+                        ]
 
-                    # обход по граням
-                    face_indexes = [
-                        [0, 4, 7, 3],
-                        [4, 5, 6, 7],
-                        [3, 7, 6, 2],
-                        [0, 4, 5, 1],
-                        [0, 1, 2, 3],
-                        [1, 5, 6, 2]
-                    ]
-                    faces = []
-                    tile_color = self.mix_color(a, b, c)
-                    for face_index, point_indexes in enumerate(face_indexes):
-                        face_points = [points[point_index] for point_index in point_indexes]
+                        faces = []
+                        tile_color = self.mix_color(a, b, c)
+                        for face_index, point_indexes in enumerate(face_indexes):
+                            face_points = [tile_points[point_index] for point_index in point_indexes]
 
-                        is_visible = face_index in self.visible_faces()
-                        edges = arcade.shape_list.create_line_loop(
-                            face_points,
-                            Tile.visible_edge_color if is_visible else Tile.not_visible_edge_color,
-                            Tile.default_width
-                        )
-                        # todo: не добавлять полностью невидимые грани в список?
-                        face = arcade.shape_list.create_polygon(
-                            face_points,
-                            tile_color if is_visible else Tile.not_visible_face_color
-                        )
+                            is_visible = face_index in self.visible_faces()
+                            if self.calculate_edges:
+                                edges = arcade.shape_list.create_line_loop(
+                                    face_points,
+                                    Tile.visible_edge_color if is_visible else Tile.not_visible_edge_color,
+                                    Tile.default_width
+                                )
+                                faces.append(edges)
 
-                        faces.append((edges, face))
+                            if is_visible:
+                                face = arcade.shape_list.create_polygon(
+                                    face_points,
+                                    tile_color if is_visible else Tile.not_visible_face_color
+                                )
+                                faces.append(face)
 
-                    for face in faces:
-                        self.tiles_set.append(face[0])
-                        self.tiles_set.append(face[1])
-                    self.tiles[a, b, c] = faces
+                        for face in faces:
+                            tiles_set.append(face)
+                        tiles[a, b, c] = faces
+            self.tiles_cache[key] = (tiles, tiles_set)
+
+        self.tiles = self.tiles_cache[key][0]
+        self.tiles_set = self.tiles_cache[key][1]
+        self.tiles_set.position = (0, 0)
+        self.tiles_set.move(self.offset_x, self.offset_y)
+
         self.inited = True
 
     def mix_color(self, a: int, b: int, c: int) -> Color:
@@ -124,7 +141,6 @@ class WorldProjection(ProjectionObject):
         return [3, 4, 5]
 
     def reset(self) -> None:
-        self.tiles_set.clear()
         self.inited = False
 
     def start(self) -> None:
@@ -136,6 +152,25 @@ class WorldProjection(ProjectionObject):
         if draw_tiles:
             self.tiles_set.draw()
 
+    def centralize(self) -> None:
+        window = arcade.get_window()
+
+        # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
+        self.coeff = 50
+
+        offset_x, offset_y = Coordinates.convert_3_to_2(
+            self.world.width / 2,
+            self.world.height / 2,
+            self.world.depth / 2
+        )
+        offset_x = round(window.center_x - offset_x * self.coeff)
+        offset_y = round(window.center_y - offset_y * self.coeff)
+
+        self.change_offset(-self.offset_x, -self.offset_y)
+        self.change_offset(offset_x, offset_y)
+
+        self.reset()
+
     def change_coeff(self, position_x: int, position_y: int, offset: int) -> None:
         scroll_coeff = 10
         coeff_offset = offset * self.coeff / self.max_coeff * scroll_coeff
@@ -143,38 +178,22 @@ class WorldProjection(ProjectionObject):
         self.coeff = max(min(self.coeff + coeff_offset, self.max_coeff), self.min_coeff)
 
         if (coeff_diff := self.coeff - old_coeff) != 0:
-            move_coeff = -(1 - self.coeff / old_coeff)
+            if offset > 0:
+                move_coeff = -(1 - self.coeff / old_coeff)
+            else:
+                move_coeff = (1 - old_coeff / self.coeff)
             if abs(coeff_diff - coeff_offset) < 0.01:
                 move_coeff = round(move_coeff, 2)
-            offset_x = (self.offset_x - position_x) * move_coeff
-            offset_y = (self.offset_y - position_y) * move_coeff
-            self.offset_x += offset_x
-            self.offset_y += offset_y
-
-        self.reset()
-
-    def centralize(self) -> None:
-        window = arcade.get_window()
-
-        # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
-        self.coeff = 50
-
-        self.offset_x, self.offset_y = Coordinates.convert_3_to_2(
-            self.world.width / 2,
-            self.world.height / 2,
-            self.world.depth / 2
-        )
-        self.offset_x *= -self.coeff
-        self.offset_y *= -self.coeff
-        self.offset_x += window.center_x
-        self.offset_y += window.center_y
+            offset_x = round((self.offset_x - position_x) * move_coeff)
+            offset_y = round((self.offset_y - position_y) * move_coeff)
+            self.change_offset(offset_x, offset_y)
 
         self.reset()
 
     def change_offset(self, offset_x: int, offset_y: int) -> None:
         self.offset_x += offset_x
         self.offset_y += offset_y
-        self.tiles_set.position = (self.offset_x, self.offset_y)
+        self.tiles_set.move(offset_x, offset_y)
 
 
 class World(Object):
@@ -208,10 +227,10 @@ class World(Object):
         # {material: amount}
         self.material = np.array([defaultdict(int) for _ in range(cells_number)]).reshape(self.shape)
 
-        self.projection = WorldProjection(self)
-
         self.thread_executor = ThreadPoolExecutor(os.cpu_count())
         self.prepare()
+
+        self.projection = WorldProjection(self)
 
     def start(self) -> None:
         pass
