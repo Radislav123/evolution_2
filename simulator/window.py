@@ -12,7 +12,8 @@ from arcade.types import Color
 from matplotlib import pyplot
 
 from core.service.object import Mixin
-from simulator.world import World
+from simulator.camera import Camera
+from simulator.world import Coordinates, World
 
 
 class TextTab(arcade.gui.UIFlatButton, Mixin):
@@ -327,6 +328,7 @@ class Window(arcade.Window, Mixin):
         self.base_resources = 0
         self.world_resources = 0
 
+        self.camera = Camera()
         self.ui_manager = UIManager(self)
         self.graphs = arcade.SpriteList()
         self.mouse_dragged = False
@@ -344,12 +346,14 @@ class Window(arcade.Window, Mixin):
             (2, 4, 6),
             (10, 10, 10),
             (3, 3, 3),
-            (15, 15, 15)
+            (15, 15, 15),
+            (25, 25, 25)
         )[6]
         self.world = World(*size)
         self.world.start()
 
         self.world.projection.start()
+        self.camera.start(Coordinates.convert_3_to_2(self.world.center_a, self.world.center_b, self.world.center_c))
 
         self.construct_tabs()
         self.construct_graphs()
@@ -500,6 +504,7 @@ class Window(arcade.Window, Mixin):
 
     def on_draw(self) -> None:
         self.clear()
+        self.camera.use()
 
         draw_objects = bool(self.draw_objects_tab)
         draw_faces = True
@@ -539,10 +544,10 @@ class Window(arcade.Window, Mixin):
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> bool | None:
         if buttons & MouseButtons.LEFT.value:
-            self.world.projection.change_offset(dx, dy)
+            self.camera.move(dx, dy)
         self.mouse_dragged = True
         return None
 
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> bool | None:
-        self.world.projection.change_coeff(x, y, scroll_y + scroll_x)
+        self.camera.change_zoom(x, y, scroll_x + scroll_y)
         return None

@@ -24,9 +24,9 @@ class Coordinates:
     # Отображение точки в трехмерном пространстве на двумерное
     @staticmethod
     @functools.cache
-    def convert_3_to_2(a: float, b: float, c: float, coeff: float = 1) -> tuple[float, float]:
-        x = (a + b / 4) * coeff
-        y = (c + b / 3) * coeff
+    def convert_3_to_2(a: float, b: float, c: float) -> tuple[float, float]:
+        x = a + b / 4
+        y = c + b / 3
         return x, y
 
 
@@ -42,19 +42,16 @@ class CopyableShape:
     def __init__(
             self,
             points: PointList,
-            scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
             color: RGBA255 = default_color,
             copying: bool = False
     ) -> None:
         self.is_copy = False
-        self.scale = scale
         self.offset_x = offset_x
         self.offset_y = offset_y
         self.default_points = points
-        self.points = [((x + self.offset_x) * self.scale, (y + self.offset_y) * self.scale)
-                       for x, y in self.default_points]
+        self.points = [(x + self.offset_x, y + self.offset_y) for x, y in self.default_points]
         self.color = color
 
         # Pack the data into a single array
@@ -84,9 +81,7 @@ class CopyableShape:
         triangulated_point_list = [p for p in interleaved if p is not None]
         return triangulated_point_list
 
-    def copy(self, scale: float = None, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
-        if scale is None:
-            scale = self.scale
+    def copy(self, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
         if offset_x is None:
             offset_x = self.offset_x
         if offset_y is None:
@@ -94,7 +89,7 @@ class CopyableShape:
         if color is None:
             color = self.color
 
-        instance = self.__class__(self.default_points, scale, offset_x, offset_y, color, True)
+        instance = self.__class__(self.default_points, offset_x, offset_y, color, True)
         return instance
 
 
@@ -104,7 +99,6 @@ class Face(CopyableShape):
     def __init__(
             self,
             points: PointList,
-            scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
             color: RGBA255 = CopyableShape.default_color,
@@ -112,7 +106,7 @@ class Face(CopyableShape):
     ) -> None:
         if not copying:
             points = self.triangulate(points)
-        super().__init__(points, scale, offset_x, offset_y, color, copying)
+        super().__init__(points, offset_x, offset_y, color, copying)
 
 
 # Подразумевается не ребро, а ребра грани, то есть четыре ребра.
@@ -123,7 +117,6 @@ class Edge(CopyableShape):
     def __init__(
             self,
             points: PointList,
-            scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
             color: RGBA255 = CopyableShape.default_color,
@@ -132,7 +125,7 @@ class Edge(CopyableShape):
         if not copying:
             points = list(points)
             points.append(points[0])
-        super().__init__(points, scale, offset_x, offset_y, color, copying)
+        super().__init__(points, offset_x, offset_y, color, copying)
 
 
 # служит только как хранилище
@@ -177,16 +170,6 @@ class WorldProjection(ProjectionObject):
         super().__init__()
         self.world = world
 
-        # соотносится с центром окна
-        self.offset_x: int = 0
-        self.offset_y: int = 0
-
-        # множитель размера отображения мира
-        self.coeff: float = 1
-        self.min_coeff = 0.01
-        self.max_coeff = 5000
-        self.coeff_round_digits = 0
-
         # Видимость тайлов
         self.visibles = np.array([True for _ in range(self.world.material.size)]).reshape(self.world.shape)
         # В каждой ячейке лежит цвет соответствующего тайла
@@ -206,8 +189,10 @@ class WorldProjection(ProjectionObject):
         self.calculate_edges = False
 
         self.inited = False
-        self.centralize()
 
+    # todo: добавить определение ближайшей грани для определения того, какой слой ближе к камере,
+    #  что нужно для того, чтобы выставлять глубину граням (координату z) для того, чтобы более дальние не перекрывали
+    #  более ближние при отображении
     def init(self) -> Any:
         # todo: перейти на перезапись вместо создания новых ndarray?
         # https://stackoverflow.com/questions/31598677/why-list-comprehension-is-much-faster-than-numpy-for-multiplying-arrays
@@ -246,11 +231,11 @@ class WorldProjection(ProjectionObject):
                 is_visible = face_index in self.visible_faces()
                 if self.calculate_faces and is_visible:
                     voxel_color = self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
-                    face = default_faces[face_index].copy(self.coeff, voxel_offset_x, voxel_offset_y, voxel_color)
+                    face = default_faces[face_index].copy(voxel_offset_x, voxel_offset_y, voxel_color)
                     voxel_faces.append(face)
                 if self.calculate_edges:
                     edges_color = Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color
-                    edge = default_edges[face_index].copy(self.coeff, voxel_offset_x, voxel_offset_y, edges_color)
+                    edge = default_edges[face_index].copy(voxel_offset_x, voxel_offset_y, edges_color)
                     voxel_edges.append(edge)
 
             for face in voxel_faces:
@@ -262,12 +247,8 @@ class WorldProjection(ProjectionObject):
 
         self.faces = faces
         self.faces_set = faces_set
-        self.faces_set.position = (0, 0)
-        self.faces_set.move(self.offset_x, self.offset_y)
         self.edges = edges
         self.edges_set = edges_set
-        self.edges_set.position = (0, 0)
-        self.edges_set.move(self.offset_x, self.offset_y)
 
         self.inited = True
 
@@ -310,52 +291,6 @@ class WorldProjection(ProjectionObject):
             self.faces_set.draw()
         if draw_edges:
             self.edges_set.draw()
-
-    # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
-    def centralize(self) -> None:
-        window = arcade.get_window()
-        self.coeff = 25
-
-        offset_x, offset_y = Coordinates.convert_3_to_2(
-            self.world.max_a / 2,
-            self.world.max_b / 2,
-            self.world.max_c / 2
-        )
-        offset_x = round(window.center_x - offset_x * self.coeff)
-        offset_y = round(window.center_y - offset_y * self.coeff)
-
-        self.change_offset(-self.offset_x, -self.offset_y)
-        self.change_offset(offset_x, offset_y)
-
-        self.reset()
-
-    def change_coeff(self, position_x: int, position_y: int, offset: int) -> None:
-        scroll_coeff = self.max_coeff / 20
-        coeff_offset = offset * self.coeff / self.max_coeff * scroll_coeff
-        old_coeff = self.coeff
-        self.coeff = max(min(self.coeff + coeff_offset, self.max_coeff), self.min_coeff)
-
-        if (coeff_diff := self.coeff - old_coeff) != 0:
-            scale_factor = self.coeff / old_coeff
-            if offset > 0:
-                move_coeff = -(1 - scale_factor)
-            else:
-                move_coeff = (1 - 1 / scale_factor)
-            if abs(coeff_diff - coeff_offset) < 0.01:
-                move_coeff = round(move_coeff, 2)
-            offset_x = (self.offset_x - position_x) * move_coeff
-            offset_y = (self.offset_y - position_y) * move_coeff
-            self.change_offset(offset_x, offset_y)
-
-        self.reset()
-
-    def change_offset(self, offset_x: float, offset_y: float) -> None:
-        offset_x = round(offset_x)
-        offset_y = round(offset_y)
-        self.offset_x += offset_x
-        self.offset_y += offset_y
-        self.faces_set.move(offset_x, offset_y)
-        self.edges_set.move(offset_x, offset_y)
 
 
 class World(Object):
@@ -416,12 +351,15 @@ class World(Object):
         for a in range(self.max_a):
             for b in range(self.max_b):
                 for c in range(self.max_c):
-                    radius = (self.center_a + self.center_b + self.center_c) / 3
                     a_centered = a - self.center_a
                     b_centered = b - self.center_b
                     c_centered = c - self.center_c
-                    if (a_centered ** 2 + b_centered ** 2 + c_centered ** 2) ** (1 / 2) <= radius:
-                        self.material[a, b, c][Water] = self.max_material_amount * 2 // 3
+                    world_sphere_radius = (self.center_a + self.center_b + self.center_c) / 3
+                    point_radius = (a_centered ** 2 + b_centered ** 2 + c_centered ** 2) ** (1 / 2)
+                    if point_radius <= world_sphere_radius:
+                        self.material[a, b, c][Water] = round(
+                            self.max_material_amount * point_radius / world_sphere_radius
+                        )
 
         for a in range(self.max_a):
             for b in range(self.max_b):
