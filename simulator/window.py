@@ -337,7 +337,16 @@ class Window(arcade.Window, Mixin):
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
     def start(self) -> None:
-        self.world = World(15, 15, 15)
+        size = (
+            (1, 1, 1),
+            (5, 7, 9),
+            (1, 2, 3),
+            (2, 4, 6),
+            (10, 10, 10),
+            (3, 3, 3),
+            (15, 15, 15)
+        )[6]
+        self.world = World(*size)
         self.world.start()
 
         self.world.projection.start()
@@ -523,7 +532,7 @@ class Window(arcade.Window, Mixin):
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if not self.mouse_dragged and self.draw_tiles_tab:
             if button == MouseButtons.LEFT.value:
-                print(x, y)
+                print(x, y, self.world.projection.coeff)
 
         self.mouse_dragged = False
 

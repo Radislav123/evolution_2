@@ -7,6 +7,7 @@ from typing import Any
 
 import arcade
 import numpy as np
+from arcade.shape_list import ShapeElementList
 
 from core.service.color import Color
 from core.service.coordinates import Coordinates
@@ -20,11 +21,11 @@ class Tile:
     not_visible_edge_color = (0, 0, 0, 10)
     not_visible_face_color = (255, 255, 255, 0)
     default_width = 1
+    image_size = 100
 
 
 class WorldProjection(ProjectionObject):
-    # {(coeff, offset_x, offset_y): tiles_set}
-    tiles_cache: dict[float, tuple[np.ndarray, arcade.shape_list.ShapeElementList]] = {}
+    tiles_cache: dict[float, tuple[np.ndarray, ShapeElementList, list[float]]] = {}
     calculate_edges = False
 
     def __init__(self, world: World) -> None:
@@ -36,14 +37,26 @@ class WorldProjection(ProjectionObject):
         self.offset_y: int = 0
 
         # множитель размера отображения мира
-        self.coeff: float | None = None
+        self.coeff: float = 1
         self.min_coeff = 0.01
-        self.max_coeff = 200
+        self.max_coeff = 5000
         self.coeff_round_digits = 0
 
-        # В каждой ячейке лежит массив с гранями
-        # [face_0, face_1, face_2, face_3, face_4, face_5]
-        self.tiles = np.array([lambda: [None] * 6 for _ in range(world.material.size)]).reshape(world.shape)
+        # Видимость тайлов
+        self.visibles = np.array([True for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        # В каждой ячейке лежит цвет соответствующего тайла
+        # (r, g, b, a)
+        self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        self.colors_to_update = [(a, b, c)
+                                 for a in range(self.world.max_a)
+                                 for b in range(self.world.max_b)
+                                 for c in range(self.world.max_c)]
+        self.tiels_to_update = [(a, b, c)
+                                for a in range(self.world.max_a)
+                                for b in range(self.world.max_b)
+                                for c in range(self.world.max_c)]
+        # В каждой ячейке лежит список граней тайла
+        self.tiles = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
         self.tiles_set = arcade.shape_list.ShapeElementList()
 
         self.inited = False
@@ -74,9 +87,9 @@ class WorldProjection(ProjectionObject):
             ]
             tiles = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
             tiles_set = arcade.shape_list.ShapeElementList()
-            for a in range(self.world.depth):
-                for b in range(self.world.height):
-                    for c in range(self.world.depth):
+            for a in range(self.world.max_a):
+                for b in range(self.world.max_b):
+                    for c in range(self.world.max_c):
                         offset_x, offset_y = Coordinates.convert_3_to_2(a, b, c)
                         # (x, y)
                         tile_points = [Coordinates.convert_3_to_2(*point) for point in points]
@@ -105,14 +118,14 @@ class WorldProjection(ProjectionObject):
                             if is_visible:
                                 face = arcade.shape_list.create_polygon(
                                     face_points,
-                                    tile_color if is_visible else Tile.not_visible_face_color
+                                    tile_color if is_visible else Tile.not_visible_face_color,
                                 )
                                 faces.append(face)
 
                         for face in faces:
                             tiles_set.append(face)
                         tiles[a, b, c] = faces
-            self.tiles_cache[key] = (tiles, tiles_set)
+            self.tiles_cache[key] = (tiles, tiles_set, [self.offset_x, self.offset_y])
 
         self.tiles = self.tiles_cache[key][0]
         self.tiles_set = self.tiles_cache[key][1]
@@ -152,16 +165,15 @@ class WorldProjection(ProjectionObject):
         if draw_tiles:
             self.tiles_set.draw()
 
+    # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
     def centralize(self) -> None:
         window = arcade.get_window()
-
-        # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
-        self.coeff = 50
+        self.coeff = 25
 
         offset_x, offset_y = Coordinates.convert_3_to_2(
-            self.world.width / 2,
-            self.world.height / 2,
-            self.world.depth / 2
+            self.world.max_a / 2,
+            self.world.max_b / 2,
+            self.world.max_c / 2
         )
         offset_x = round(window.center_x - offset_x * self.coeff)
         offset_y = round(window.center_y - offset_y * self.coeff)
@@ -172,25 +184,28 @@ class WorldProjection(ProjectionObject):
         self.reset()
 
     def change_coeff(self, position_x: int, position_y: int, offset: int) -> None:
-        scroll_coeff = 10
+        scroll_coeff = self.max_coeff / 20
         coeff_offset = offset * self.coeff / self.max_coeff * scroll_coeff
         old_coeff = self.coeff
         self.coeff = max(min(self.coeff + coeff_offset, self.max_coeff), self.min_coeff)
 
         if (coeff_diff := self.coeff - old_coeff) != 0:
+            scale_factor = self.coeff / old_coeff
             if offset > 0:
-                move_coeff = -(1 - self.coeff / old_coeff)
+                move_coeff = -(1 - scale_factor)
             else:
-                move_coeff = (1 - old_coeff / self.coeff)
+                move_coeff = (1 - 1 / scale_factor)
             if abs(coeff_diff - coeff_offset) < 0.01:
                 move_coeff = round(move_coeff, 2)
-            offset_x = round((self.offset_x - position_x) * move_coeff)
-            offset_y = round((self.offset_y - position_y) * move_coeff)
+            offset_x = (self.offset_x - position_x) * move_coeff
+            offset_y = (self.offset_y - position_y) * move_coeff
             self.change_offset(offset_x, offset_y)
 
         self.reset()
 
-    def change_offset(self, offset_x: int, offset_y: int) -> None:
+    def change_offset(self, offset_x: float, offset_y: float) -> None:
+        offset_x = round(offset_x)
+        offset_y = round(offset_y)
         self.offset_x += offset_x
         self.offset_y += offset_y
         self.tiles_set.move(offset_x, offset_y)
@@ -205,9 +220,9 @@ class World(Object):
             seed: int = None
     ) -> None:
         super().__init__()
-        self.width = width
-        self.height = height
-        self.depth = depth
+        self.max_a = width
+        self.max_b = height
+        self.max_c = depth
 
         if seed is None:
             seed = datetime.datetime.now().timestamp()
@@ -217,12 +232,12 @@ class World(Object):
         self.age = 0
         self.max_material_amount = 1000
 
-        self.center_a = self.width // 2
-        self.center_b = self.height // 2
-        self.center_c = self.depth // 2
+        self.center_a = self.max_a // 2
+        self.center_b = self.max_b // 2
+        self.center_c = self.max_c // 2
 
-        cells_number = self.width * self.height * self.depth
-        self.shape = (self.width, self.height, self.depth)
+        cells_number = self.max_a * self.max_b * self.max_c
+        self.shape = (self.max_a, self.max_b, self.max_c)
         # В каждой ячейке лежит словарь с веществом и его количеством
         # {material: amount}
         self.material = np.array([defaultdict(int) for _ in range(cells_number)]).reshape(self.shape)
@@ -251,9 +266,9 @@ class World(Object):
         self.generate_materials()
 
     def generate_materials(self) -> None:
-        for a in range(self.width):
-            for b in range(self.height):
-                for c in range(self.depth):
+        for a in range(self.max_a):
+            for b in range(self.max_b):
+                for c in range(self.max_c):
                     radius = (self.center_a + self.center_b + self.center_c) / 3
                     a_centered = a - self.center_a
                     b_centered = b - self.center_b
@@ -261,13 +276,11 @@ class World(Object):
                     if (a_centered ** 2 + b_centered ** 2 + c_centered ** 2) ** (1 / 2) <= radius:
                         self.material[a, b, c][Water] = self.max_material_amount * 2 // 3
 
-        for a in range(self.width):
-            for b in range(self.height):
-                for c in range(self.depth):
+        for a in range(self.max_a):
+            for b in range(self.max_b):
+                for c in range(self.max_c):
                     materials: Materials = self.material[a, b, c]
                     total_amount = sum(amount for amount in materials.values())
                     assert total_amount <= self.max_material_amount, f"Total amount of materials in tile ({total_amount}) must be lower or equal to max_material_amount ({self.max_material_amount})"
                     if total_amount < self.max_material_amount:
                         materials[Vacuum] = self.max_material_amount - total_amount
-                    else:
-                        pass
