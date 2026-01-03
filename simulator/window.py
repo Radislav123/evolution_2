@@ -503,7 +503,8 @@ class Window(arcade.Window, Mixin):
 
         draw_objects = bool(self.draw_objects_tab)
         draw_tiles = bool(self.draw_tiles_tab)
-        self.world.projection.on_draw(draw_tiles)
+        draw_edges = True
+        self.world.projection.on_draw(draw_tiles, draw_edges)
 
         self.ui_manager.draw()
         self.tab_container.draw_all()

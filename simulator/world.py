@@ -1,4 +1,5 @@
 import datetime
+import functools
 import os
 import random
 from collections import defaultdict
@@ -10,14 +11,23 @@ import numpy as np
 from arcade.shape_list import ShapeElementList
 
 from core.service.color import Color
-from core.service.coordinates import Coordinates
 from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
 
 
+class Coordinates:
+    # Отображение точки в трехмерном пространстве на двумерное
+    @staticmethod
+    @functools.cache
+    def convert_3_to_2(a: float, b: float, c: float, coeff: float = 1) -> tuple[float, float]:
+        x = (a + b / 4) * coeff
+        y = (c + b / 3) * coeff
+        return x, y
+
+
 # служит только как хранилище настроек
 class Tile:
-    visible_edge_color = (0, 0, 0, 50)
+    visible_edge_color = (0, 0, 0, 3)
     not_visible_edge_color = (0, 0, 0, 10)
     not_visible_face_color = (255, 255, 255, 0)
     default_width = 1
@@ -25,8 +35,9 @@ class Tile:
 
 
 class WorldProjection(ProjectionObject):
+    # todo: remove cache?
     tiles_cache: dict[float, tuple[np.ndarray, ShapeElementList, list[float]]] = {}
-    calculate_edges = False
+    calculate_edges = True
 
     def __init__(self, world: World) -> None:
         super().__init__()
@@ -47,90 +58,103 @@ class WorldProjection(ProjectionObject):
         # В каждой ячейке лежит цвет соответствующего тайла
         # (r, g, b, a)
         self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        self.colors_to_update = [(a, b, c)
-                                 for a in range(self.world.max_a)
-                                 for b in range(self.world.max_b)
-                                 for c in range(self.world.max_c)]
-        self.tiels_to_update = [(a, b, c)
-                                for a in range(self.world.max_a)
-                                for b in range(self.world.max_b)
-                                for c in range(self.world.max_c)]
+        self.colors_to_update: set[tuple[int, int, int]] = {(a, b, c)
+                                                            for a in range(self.world.max_a)
+                                                            for b in range(self.world.max_b)
+                                                            for c in range(self.world.max_c)}
+        self.tiles_to_update: set[tuple[int, int, int]] = set()
         # В каждой ячейке лежит список граней тайла
         self.tiles = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
         self.tiles_set = arcade.shape_list.ShapeElementList()
+        self.edges = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        self.edges_set = arcade.shape_list.ShapeElementList()
 
         self.inited = False
         self.centralize()
 
     def init(self) -> Any:
-        key = round(self.coeff, self.coeff_round_digits)
-        if key not in self.tiles_cache:
-            points = (
-                # (a, b, c)
-                (0, 0, 0),
-                (0, 1, 0),
-                (1, 1, 0),
-                (1, 0, 0),
-                (0, 0, 1),
-                (0, 1, 1),
-                (1, 1, 1),
-                (1, 0, 1)
-            )
-            # обход по граням
-            face_indexes = [
-                [0, 4, 7, 3],
-                [4, 5, 6, 7],
-                [3, 7, 6, 2],
-                [0, 4, 5, 1],
-                [0, 1, 2, 3],
-                [1, 5, 6, 2]
-            ]
-            tiles = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
-            tiles_set = arcade.shape_list.ShapeElementList()
-            for a in range(self.world.max_a):
-                for b in range(self.world.max_b):
-                    for c in range(self.world.max_c):
-                        offset_x, offset_y = Coordinates.convert_3_to_2(a, b, c)
-                        # (x, y)
-                        tile_points = [Coordinates.convert_3_to_2(*point) for point in points]
-                        # coeff and offset
-                        tile_points = [
-                            (
-                                (point[0] + offset_x) * self.coeff,
-                                (point[1] + offset_y) * self.coeff
-                            ) for point in tile_points
-                        ]
+        points = (
+            # (a, b, c)
+            (0, 0, 0),
+            (0, 1, 0),
+            (1, 1, 0),
+            (1, 0, 0),
+            (0, 0, 1),
+            (0, 1, 1),
+            (1, 1, 1),
+            (1, 0, 1)
+        )
+        # обход по граням
+        face_indexes = [
+            [0, 4, 7, 3],
+            [4, 5, 6, 7],
+            [3, 7, 6, 2],
+            [0, 4, 5, 1],
+            [0, 1, 2, 3],
+            [1, 5, 6, 2]
+        ]
+        for coordinates in self.colors_to_update:
+            a, b, c = coordinates
+            self.colors[a, b, c] = self.mix_color(a, b, c)
+            self.tiles_to_update.add(coordinates)
 
-                        faces = []
-                        tile_color = self.mix_color(a, b, c)
-                        for face_index, point_indexes in enumerate(face_indexes):
-                            face_points = [tile_points[point_index] for point_index in point_indexes]
+        for a, b, c in self.tiles_to_update:
+            pass
 
-                            is_visible = face_index in self.visible_faces()
-                            if self.calculate_edges:
-                                edges = arcade.shape_list.create_line_loop(
-                                    face_points,
-                                    Tile.visible_edge_color if is_visible else Tile.not_visible_edge_color,
-                                    Tile.default_width
-                                )
-                                faces.append(edges)
+        tiles = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        tiles_set = arcade.shape_list.ShapeElementList()
+        edges = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        edges_set = arcade.shape_list.ShapeElementList()
+        for a in range(self.world.max_a):
+            for b in range(self.world.max_b):
+                for c in range(self.world.max_c):
+                    offset_x, offset_y = Coordinates.convert_3_to_2(a, b, c)
+                    # (x, y)
+                    tile_points = [Coordinates.convert_3_to_2(*point) for point in points]
+                    # coeff and offset
+                    tile_points = [
+                        (
+                            (point[0] + offset_x) * self.coeff,
+                            (point[1] + offset_y) * self.coeff
+                        ) for point in tile_points
+                    ]
 
-                            if is_visible:
-                                face = arcade.shape_list.create_polygon(
-                                    face_points,
-                                    tile_color if is_visible else Tile.not_visible_face_color,
-                                )
-                                faces.append(face)
+                    tile_faces = []
+                    tile_edges = []
+                    for face_index, point_indexes in enumerate(face_indexes):
+                        face_points = [tile_points[point_index] for point_index in point_indexes]
 
-                        for face in faces:
-                            tiles_set.append(face)
-                        tiles[a, b, c] = faces
-            self.tiles_cache[key] = (tiles, tiles_set, [self.offset_x, self.offset_y])
+                        is_visible = face_index in self.visible_faces()
+                        if self.calculate_edges:
+                            edge = arcade.shape_list.create_line_loop(
+                                face_points,
+                                Tile.visible_edge_color if is_visible else Tile.not_visible_edge_color,
+                                Tile.default_width
+                            )
+                            tile_edges.append(edge)
+                            for edge in tile_edges:
+                                edges_set.append(edge)
+                            edges[a, b, c] = tile_edges
 
-        self.tiles = self.tiles_cache[key][0]
-        self.tiles_set = self.tiles_cache[key][1]
+                        if is_visible:
+                            face = arcade.shape_list.create_polygon(
+                                face_points,
+                                self.colors[a, b, c] if is_visible else Tile.not_visible_face_color,
+                            )
+                            tile_faces.append(face)
+
+                    for face in tile_faces:
+                        tiles_set.append(face)
+                    tiles[a, b, c] = tile_faces
+
+        self.tiles = tiles
+        self.tiles_set = tiles_set
         self.tiles_set.position = (0, 0)
         self.tiles_set.move(self.offset_x, self.offset_y)
+        self.edges = edges
+        self.edges_set = edges_set
+        self.edges_set.position = (0, 0)
+        self.edges_set.move(self.offset_x, self.offset_y)
 
         self.inited = True
 
@@ -159,11 +183,13 @@ class WorldProjection(ProjectionObject):
     def start(self) -> None:
         pass
 
-    def on_draw(self, draw_tiles: bool) -> None:
+    def on_draw(self, draw_tiles: bool, draw_edges: bool) -> None:
         if not self.inited:
             self.init()
         if draw_tiles:
             self.tiles_set.draw()
+        if draw_edges:
+            self.edges_set.draw()
 
     # todo: вызов данного метода должен перерисовывать карту так, чтобы она целиком помещалась на экране?
     def centralize(self) -> None:
@@ -209,6 +235,7 @@ class WorldProjection(ProjectionObject):
         self.offset_x += offset_x
         self.offset_y += offset_y
         self.tiles_set.move(offset_x, offset_y)
+        self.edges_set.move(offset_x, offset_y)
 
 
 class World(Object):
