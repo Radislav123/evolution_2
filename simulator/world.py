@@ -5,7 +5,7 @@ import os
 import random
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Self
 
 import arcade
 import numpy as np
@@ -28,6 +28,8 @@ class Coordinates:
 
 
 class CopyableShape(Shape):
+    # полностью непрозрачный розовый - для заметности
+    default_color: RGBA255 = (239, 64, 245, 255)
     default_mode: int
 
     @staticmethod
@@ -46,17 +48,31 @@ class CopyableShape(Shape):
             scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
-            # полностью непрозрачный розовый - для заметности
-            color: RGBA255 = (239, 64, 245, 0)
+            color: RGBA255 = default_color,
+            copying: bool = False
     ) -> None:
         self.color = color
         self.scale = scale
         self.offset_x = offset_x
         self.offset_y = offset_y
+        self.default_points = points
         points = [((x + self.offset_x) * self.scale, (y + self.offset_y) * self.scale) for x, y in points]
         colors = [color] * len(points)
 
         super().__init__(points, colors, self.default_mode)
+
+    def copy(self, scale: float = None, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
+        if scale is None:
+            scale = self.scale
+        if offset_x is None:
+            offset_x = self.offset_x
+        if offset_y is None:
+            offset_y = self.offset_y
+        if color is None:
+            color = self.color
+
+        instance = self.__class__(self.default_points, scale, offset_x, offset_y, color, True)
+        return instance
 
 
 class Face(CopyableShape):
@@ -68,10 +84,12 @@ class Face(CopyableShape):
             scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
-            # полностью непрозрачный розовый - для заметности
-            color: RGBA255 = (239, 64, 245, 0)
+            color: RGBA255 = CopyableShape.default_color,
+            copying: bool = False
     ) -> None:
-        super().__init__(self.triangulate(points), scale, offset_x, offset_y, color)
+        if not copying:
+            points = self.triangulate(points)
+        super().__init__(points, scale, offset_x, offset_y, color)
 
 
 # Подразумевается не ребро, а ребра грани, то есть четыре ребра.
@@ -85,11 +103,12 @@ class Edge(CopyableShape):
             scale: float = 1,
             offset_x: float = 0,
             offset_y: float = 0,
-            # полностью непрозрачный розовый - для заметности
-            color: RGBA255 = (239, 64, 245, 0)
+            color: RGBA255 = CopyableShape.default_color,
+            copying: bool = False
     ) -> None:
-        points = list(points)
-        points.append(points[0])
+        if not copying:
+            points = list(points)
+            points.append(points[0])
         super().__init__(points, scale, offset_x, offset_y, color)
 
 
@@ -181,32 +200,30 @@ class WorldProjection(ProjectionObject):
             self.colors[a, b, c] = self.mix_color(a, b, c)
             self.voxels_to_update.add(coordinates)
 
+        default_faces: list[Face] = []
+        default_edges: list[Edge] = []
+        for face_index, face_vertices in enumerate(voxels_vertices):
+            if self.calculate_faces:
+                face = Face(face_vertices)
+                default_faces.append(face)
+            if self.calculate_edges:
+                edge = Edge(face_vertices)
+                default_edges.append(edge)
+
         for a, b, c in self.voxels_to_update:
             voxel_offset_x, voxel_offset_y = Coordinates.convert_3_to_2(a, b, c)
             voxel_faces = []
             voxel_edges = []
+
             for face_index, face_vertices in enumerate(voxels_vertices):
                 is_visible = face_index in self.visible_faces()
-
                 if self.calculate_faces and is_visible:
                     voxel_color = self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
-                    face = Face(
-                        face_vertices,
-                        self.coeff,
-                        voxel_offset_x,
-                        voxel_offset_y,
-                        voxel_color
-                    )
+                    face = default_faces[face_index].copy(self.coeff, voxel_offset_x, voxel_offset_y, voxel_color)
                     voxel_faces.append(face)
                 if self.calculate_edges:
                     edges_color = Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color
-                    edge = Edge(
-                        face_vertices,
-                        self.coeff,
-                        voxel_offset_x,
-                        voxel_offset_y,
-                        edges_color
-                    )
+                    edge = default_edges[face_index].copy(self.coeff, voxel_offset_x, voxel_offset_y, edges_color)
                     voxel_edges.append(edge)
 
             for face in voxel_faces:
