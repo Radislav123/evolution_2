@@ -3,15 +3,18 @@ import functools
 import itertools
 import os
 import random
+from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Self
+from typing import Any, Self, Sequence
 
 import arcade
 import numpy as np
 import pyglet.gl as gl
-from arcade.shape_list import Shape, ShapeElementList
-from arcade.types import PointList, RGBA255
+from arcade import get_window
+from arcade.gl import Buffer, Geometry, Program
+from arcade.shape_list import ShapeElementList
+from arcade.types import Color, PointList, RGBA255
 
 from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
@@ -25,6 +28,49 @@ class Coordinates:
         x = (a + b / 4) * coeff
         y = (c + b / 3) * coeff
         return x, y
+
+
+# Скопировано из arcade.shape_list.Shape
+class Shape:
+    def __init__(
+            self,
+            points: PointList,
+            colors: Sequence[RGBA255],
+            # vao: Geometry,
+            # vbo: Buffer,
+            mode: int = gl.GL_TRIANGLES,
+            program: Program | None = None,
+    ) -> None:
+        self.ctx = get_window().ctx
+        self.program = program or self.ctx.line_generic_with_colors_program
+        self.mode = mode
+
+        if len(points) != len(colors):
+            raise ValueError("Number of points and colors must match.")
+
+        self.points = points
+        # Ensure colors have 4 components
+        self.colors = [Color.from_iterable(color) for color in colors]
+        # Pack the data into a single array
+        self.data = array("f", [c for a in zip(self.points, self.colors) for b in a for c in b])
+        self.vertices = len(points)
+
+        self.geometry: Geometry | None = None
+        self.buffer: Buffer | None = None
+
+    def draw(self) -> None:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement draw. Not draw in alone. Use ShapeElementList.draw instead."
+        )
+
+    def __copy__(self) -> Self:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement __copy__. Use copy instead.")
+
+    def __deepcopy__(self, memo) -> Self:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement __deepcopy__. Use copy instead.")
+
+    def copy(self, memo) -> Self:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement copy. Implement it.")
 
 
 class CopyableShape(Shape):
@@ -61,6 +107,7 @@ class CopyableShape(Shape):
 
         super().__init__(points, colors, self.default_mode)
 
+    # todo: нужно ускорить копирование, потому что сейчас это занимает столько же времени, как и создание полностью нового объекта
     def copy(self, scale: float = None, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
         if scale is None:
             scale = self.scale
