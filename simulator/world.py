@@ -6,15 +6,15 @@ import random
 from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Self, Sequence
+from typing import Any, Self
 
 import arcade
 import numpy as np
 import pyglet.gl as gl
-from arcade import get_window
+from arcade import ArcadeContext, get_window
 from arcade.gl import Buffer, Geometry, Program
 from arcade.shape_list import ShapeElementList
-from arcade.types import Color, PointList, RGBA255
+from arcade.types import PointList, RGBA255
 
 from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
@@ -30,62 +30,13 @@ class Coordinates:
         return x, y
 
 
-# Скопировано из arcade.shape_list.Shape
-class Shape:
-    def __init__(
-            self,
-            points: PointList,
-            colors: Sequence[RGBA255],
-            # vao: Geometry,
-            # vbo: Buffer,
-            mode: int = gl.GL_TRIANGLES,
-            program: Program | None = None,
-    ) -> None:
-        self.ctx = get_window().ctx
-        self.program = program or self.ctx.line_generic_with_colors_program
-        self.mode = mode
-
-        if len(points) != len(colors):
-            raise ValueError("Number of points and colors must match.")
-
-        self.points = points
-        # Ensure colors have 4 components
-        self.colors = [Color.from_iterable(color) for color in colors]
-        # Pack the data into a single array
-        self.data = array("f", [c for a in zip(self.points, self.colors) for b in a for c in b])
-        self.vertices = len(points)
-
-        self.geometry: Geometry | None = None
-        self.buffer: Buffer | None = None
-
-    def draw(self) -> None:
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement draw. Not draw in alone. Use ShapeElementList.draw instead."
-        )
-
-    def __copy__(self) -> Self:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement __copy__. Use copy instead.")
-
-    def __deepcopy__(self, memo) -> Self:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement __deepcopy__. Use copy instead.")
-
-    def copy(self, memo) -> Self:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement copy. Implement it.")
-
-
-class CopyableShape(Shape):
+# См. arcade.shape_list.Shape
+class CopyableShape:
     # полностью непрозрачный розовый - для заметности
     default_color: RGBA255 = (239, 64, 245, 255)
-    default_mode: int
-
-    @staticmethod
-    def triangulate(point_list: PointList) -> PointList:
-        half = len(point_list) // 2
-        interleaved = itertools.chain.from_iterable(
-            itertools.zip_longest(point_list[:half], reversed(point_list[half:]))
-        )
-        triangulated_point_list = [p for p in interleaved if p is not None]
-        return triangulated_point_list
+    mode: int
+    ctx: ArcadeContext
+    program: Program
 
     # Сначала применяется смещение (offset_[x|y]), потом масштаб (scale)
     def __init__(
@@ -97,17 +48,42 @@ class CopyableShape(Shape):
             color: RGBA255 = default_color,
             copying: bool = False
     ) -> None:
-        self.color = color
+        self.is_copy = False
         self.scale = scale
         self.offset_x = offset_x
         self.offset_y = offset_y
         self.default_points = points
-        points = [((x + self.offset_x) * self.scale, (y + self.offset_y) * self.scale) for x, y in points]
-        colors = [color] * len(points)
+        self.points = [((x + self.offset_x) * self.scale, (y + self.offset_y) * self.scale)
+                       for x, y in self.default_points]
+        self.color = color
 
-        super().__init__(points, colors, self.default_mode)
+        # Pack the data into a single array
+        self.data = array("f", (number for point in self.points for obj in (point, self.color) for number in obj))
+        self.vertices = len(points)
 
-    # todo: нужно ускорить копирование, потому что сейчас это занимает столько же времени, как и создание полностью нового объекта
+        self.geometry: Geometry | None = None
+        self.buffer: Buffer | None = None
+
+    def __copy__(self) -> Self:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement __copy__. Use copy instead.")
+
+    def __deepcopy__(self, memo) -> Self:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement __deepcopy__. Use copy instead.")
+
+    def draw(self) -> None:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement draw. Not draw in alone. Use ShapeElementList.draw instead."
+        )
+
+    @staticmethod
+    def triangulate(point_list: PointList) -> PointList:
+        half = len(point_list) // 2
+        interleaved = itertools.chain.from_iterable(
+            itertools.zip_longest(point_list[:half], reversed(point_list[half:]))
+        )
+        triangulated_point_list = [p for p in interleaved if p is not None]
+        return triangulated_point_list
+
     def copy(self, scale: float = None, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
         if scale is None:
             scale = self.scale
@@ -123,7 +99,7 @@ class CopyableShape(Shape):
 
 
 class Face(CopyableShape):
-    default_mode = gl.GL_TRIANGLE_STRIP
+    mode = gl.GL_TRIANGLE_STRIP
 
     def __init__(
             self,
@@ -136,13 +112,13 @@ class Face(CopyableShape):
     ) -> None:
         if not copying:
             points = self.triangulate(points)
-        super().__init__(points, scale, offset_x, offset_y, color)
+        super().__init__(points, scale, offset_x, offset_y, color, copying)
 
 
 # Подразумевается не ребро, а ребра грани, то есть четыре ребра.
 # Называется не FaceEdges в угоду краткости.
 class Edge(CopyableShape):
-    default_mode = gl.GL_LINE_STRIP
+    mode = gl.GL_LINE_STRIP
 
     def __init__(
             self,
@@ -156,7 +132,7 @@ class Edge(CopyableShape):
         if not copying:
             points = list(points)
             points.append(points[0])
-        super().__init__(points, scale, offset_x, offset_y, color)
+        super().__init__(points, scale, offset_x, offset_y, color, copying)
 
 
 # служит только как хранилище
@@ -194,6 +170,10 @@ class WorldProjection(ProjectionObject):
     voxels_cache: dict[float, tuple[np.ndarray, ShapeElementList, list[float]]] = {}
 
     def __init__(self, world: World) -> None:
+        # Это было в arcade.shape_list.Shape, но вынесено сюда, чтобы исполняться лишь единожды
+        CopyableShape.ctx = get_window().ctx
+        CopyableShape.program = CopyableShape.ctx.line_generic_with_colors_program
+
         super().__init__()
         self.world = world
 

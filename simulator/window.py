@@ -345,7 +345,7 @@ class Window(arcade.Window, Mixin):
             (10, 10, 10),
             (3, 3, 3),
             (15, 15, 15)
-        )[4]
+        )[6]
         self.world = World(*size)
         self.world.start()
 
