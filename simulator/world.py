@@ -1,5 +1,6 @@
 import datetime
 import functools
+import itertools
 import os
 import random
 from collections import defaultdict
@@ -8,9 +9,10 @@ from typing import Any
 
 import arcade
 import numpy as np
-from arcade.shape_list import ShapeElementList
+import pyglet.gl as gl
+from arcade.shape_list import Shape, ShapeElementList
+from arcade.types import PointList
 
-from core.service.color import Color
 from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
 
@@ -25,12 +27,32 @@ class Coordinates:
         return x, y
 
 
+class CopyableShape(Shape):
+    @staticmethod
+    def triangulate(point_list: PointList) -> PointList:
+        half = len(point_list) // 2
+        interleaved = itertools.chain.from_iterable(
+            itertools.zip_longest(point_list[:half], reversed(point_list[half:]))
+        )
+        triangulated_point_list = [p for p in interleaved if p is not None]
+        return triangulated_point_list
+
+
+class Face(CopyableShape):
+    pass
+
+
+# Подразумевается не ребро, а ребра грани, то есть четыре ребра.
+# Называется не FaceEdges в угоду краткости.
+class Edge(CopyableShape):
+    pass
+
+
 # служит только как хранилище
 class Voxel:
     visible_edge_color = (0, 0, 0, 3)
     not_visible_edge_color = (0, 0, 0, 10)
     not_visible_face_color = (255, 255, 255, 0)
-    default_edge_width = 1
     image_size = 100
 
     vertices_3 = (
@@ -96,6 +118,8 @@ class WorldProjection(ProjectionObject):
         self.centralize()
 
     def init(self) -> Any:
+        # todo: перейти на перезапись вместо создания новых ndarray?
+        # https://stackoverflow.com/questions/31598677/why-list-comprehension-is-much-faster-than-numpy-for-multiplying-arrays
         faces = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
         faces_set = arcade.shape_list.ShapeElementList()
         edges = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
@@ -125,16 +149,22 @@ class WorldProjection(ProjectionObject):
                 ) for vertex_x, vertex_y in face_vertices]
 
                 if self.calculate_faces and is_visible:
-                    face = arcade.shape_list.create_polygon(
-                        face_vertices_positioned,
-                        self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
+                    face_vertices = CopyableShape.triangulate(face_vertices_positioned)
+                    voxel_color = self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
+                    face = Face(
+                        face_vertices,
+                        [voxel_color] * len(face_vertices),
+                        gl.GL_TRIANGLE_STRIP
                     )
                     voxel_faces.append(face)
                 if self.calculate_edges:
-                    edge = arcade.shape_list.create_line_loop(
-                        face_vertices_positioned,
-                        Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color,
-                        Voxel.default_edge_width
+                    edges_vertices = face_vertices_positioned.copy()
+                    edges_vertices.append(edges_vertices[0])
+                    edges_color = Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color
+                    edge = Edge(
+                        edges_vertices,
+                        [edges_color] * len(edges_vertices),
+                        gl.GL_LINE_STRIP
                     )
                     voxel_edges.append(edge)
 
@@ -156,7 +186,7 @@ class WorldProjection(ProjectionObject):
 
         self.inited = True
 
-    def mix_color(self, a: int, b: int, c: int) -> Color:
+    def mix_color(self, a: int, b: int, c: int) -> tuple[int, int, int, int]:
         materials = self.world.material[a, b, c]
         total_amount = sum(materials.values())
         rgb = (
