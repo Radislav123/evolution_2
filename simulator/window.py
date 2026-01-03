@@ -309,7 +309,7 @@ class Window(arcade.Window, Mixin):
     base_resources_tab: TextTab
     world_resources_tab: TextTab
     # отрисовка сетки мира
-    draw_tiles_tab: TextTab
+    draw_edges_tab: TextTab
     draw_objects_tab: TextTab
     draw_graphs_tab: TextTab
     creature_tps_statistics: dict["Creature", list[int]] = defaultdict(list)
@@ -468,7 +468,7 @@ class Window(arcade.Window, Mixin):
 
         # левый нижний угол
         # отрисовка сетки
-        self.draw_tiles_tab = self.tab_container.corners[0].add(
+        self.draw_edges_tab = self.tab_container.corners[0].add(
             TextTab(lambda: "Показывать сетку мира", self.settings.OVERLAY_UPDATE_PERIOD)
         )
         # отрисовка объектов
@@ -502,9 +502,9 @@ class Window(arcade.Window, Mixin):
         self.clear()
 
         draw_objects = bool(self.draw_objects_tab)
-        draw_tiles = bool(self.draw_tiles_tab)
-        draw_edges = True
-        self.world.projection.on_draw(draw_tiles, draw_edges)
+        draw_faces = True
+        draw_edges = bool(self.draw_edges_tab)
+        self.world.projection.on_draw(draw_faces, draw_edges)
 
         self.ui_manager.draw()
         self.tab_container.draw_all()
@@ -531,7 +531,7 @@ class Window(arcade.Window, Mixin):
         self.set_update_rate(1 / tps)
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
-        if not self.mouse_dragged and self.draw_tiles_tab:
+        if not self.mouse_dragged and self.draw_edges_tab:
             if button == MouseButtons.LEFT.value:
                 print(x, y, self.world.projection.coeff)
 
