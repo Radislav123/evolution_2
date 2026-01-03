@@ -11,7 +11,7 @@ import arcade
 import numpy as np
 import pyglet.gl as gl
 from arcade.shape_list import Shape, ShapeElementList
-from arcade.types import PointList
+from arcade.types import PointList, RGBA255
 
 from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
@@ -28,6 +28,8 @@ class Coordinates:
 
 
 class CopyableShape(Shape):
+    default_mode: int
+
     @staticmethod
     def triangulate(point_list: PointList) -> PointList:
         half = len(point_list) // 2
@@ -37,15 +39,58 @@ class CopyableShape(Shape):
         triangulated_point_list = [p for p in interleaved if p is not None]
         return triangulated_point_list
 
+    # Сначала применяется смещение (offset_[x|y]), потом масштаб (scale)
+    def __init__(
+            self,
+            points: PointList,
+            scale: float = 1,
+            offset_x: float = 0,
+            offset_y: float = 0,
+            # полностью непрозрачный розовый - для заметности
+            color: RGBA255 = (239, 64, 245, 0)
+    ) -> None:
+        self.color = color
+        self.scale = scale
+        self.offset_x = offset_x
+        self.offset_y = offset_y
+        points = [((x + self.offset_x) * self.scale, (y + self.offset_y) * self.scale) for x, y in points]
+        colors = [color] * len(points)
+
+        super().__init__(points, colors, self.default_mode)
+
 
 class Face(CopyableShape):
-    pass
+    default_mode = gl.GL_TRIANGLE_STRIP
+
+    def __init__(
+            self,
+            points: PointList,
+            scale: float = 1,
+            offset_x: float = 0,
+            offset_y: float = 0,
+            # полностью непрозрачный розовый - для заметности
+            color: RGBA255 = (239, 64, 245, 0)
+    ) -> None:
+        super().__init__(self.triangulate(points), scale, offset_x, offset_y, color)
 
 
 # Подразумевается не ребро, а ребра грани, то есть четыре ребра.
 # Называется не FaceEdges в угоду краткости.
 class Edge(CopyableShape):
-    pass
+    default_mode = gl.GL_LINE_STRIP
+
+    def __init__(
+            self,
+            points: PointList,
+            scale: float = 1,
+            offset_x: float = 0,
+            offset_y: float = 0,
+            # полностью непрозрачный розовый - для заметности
+            color: RGBA255 = (239, 64, 245, 0)
+    ) -> None:
+        points = list(points)
+        points.append(points[0])
+        super().__init__(points, scale, offset_x, offset_y, color)
 
 
 # служит только как хранилище
@@ -142,29 +187,25 @@ class WorldProjection(ProjectionObject):
             voxel_edges = []
             for face_index, face_vertices in enumerate(voxels_vertices):
                 is_visible = face_index in self.visible_faces()
-                # сдвинутые на свою позицию в мире
-                face_vertices_positioned = [(
-                    (vertex_x + voxel_offset_x) * self.coeff,
-                    (vertex_y + voxel_offset_y) * self.coeff
-                ) for vertex_x, vertex_y in face_vertices]
 
                 if self.calculate_faces and is_visible:
-                    face_vertices = CopyableShape.triangulate(face_vertices_positioned)
                     voxel_color = self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
                     face = Face(
                         face_vertices,
-                        [voxel_color] * len(face_vertices),
-                        gl.GL_TRIANGLE_STRIP
+                        self.coeff,
+                        voxel_offset_x,
+                        voxel_offset_y,
+                        voxel_color
                     )
                     voxel_faces.append(face)
                 if self.calculate_edges:
-                    edges_vertices = face_vertices_positioned.copy()
-                    edges_vertices.append(edges_vertices[0])
                     edges_color = Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color
                     edge = Edge(
-                        edges_vertices,
-                        [edges_color] * len(edges_vertices),
-                        gl.GL_LINE_STRIP
+                        face_vertices,
+                        self.coeff,
+                        voxel_offset_x,
+                        voxel_offset_y,
+                        edges_color
                     )
                     voxel_edges.append(edge)
 
