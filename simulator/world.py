@@ -99,11 +99,13 @@ class WorldProjection(Object):
         # В каждой ячейке лежит цвет соответствующего тайла
         # (r, g, b, a)
         self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        self.colors_to_update: set[tuple[int, int, int]] = {(a, b, c)
-                                                            for a in range(self.world.max_a)
-                                                            for b in range(self.world.max_b)
-                                                            for c in range(self.world.max_c)}
-        self.faces_to_update: set[tuple[int, int, int]] = set()
+        # Порядок добавления важен, так как от него зависит порядок отрисовки, а значит и то,
+        # что будет нарисовано на переднем, а что на фоне
+        self.colors_to_update: dict[tuple[int, int, int], None] = {(a, b, c): None
+                                                                   for b in range(self.world.max_b - 1, -1, -1)
+                                                                   for a in range(self.world.max_a)
+                                                                   for c in range(self.world.max_c)}
+        self.faces_to_update: dict[tuple[int, int, int], None] = {}
 
         # В каждой ячейке лежит список граней тайла
         self.faces = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
@@ -135,7 +137,7 @@ class WorldProjection(Object):
         for coordinates in self.colors_to_update:
             a, b, c = coordinates
             self.colors[a, b, c] = self.mix_color(a, b, c)
-            self.faces_to_update.add(coordinates)
+            self.faces_to_update[coordinates] = None
 
         default_faces: list[Face] = []
         default_edges: list[Edge] = []
@@ -170,6 +172,9 @@ class WorldProjection(Object):
                 edges_set.append(edge)
             edges[a, b, c] = voxel_edges
 
+        self.colors_to_update.clear()
+        self.faces_to_update.clear()
+
         self.faces = faces
         self.faces_set = faces_set
         self.edges = edges
@@ -184,9 +189,9 @@ class WorldProjection(Object):
             round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
             index in range(3)
         )
-        a = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
+        alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
         # noinspection PyTypeChecker
-        return *rgb, a
+        return *rgb, alpha
 
     # Возвращает список видимых граней
     def visible_faces(self) -> list[int]:
@@ -273,13 +278,13 @@ class World(Object):
         self.generate_materials()
 
     def generate_materials(self) -> None:
+        world_sphere_radius = max((self.center_a + self.center_b + self.center_c) / 3, 1)
         for a in range(self.max_a):
             for b in range(self.max_b):
                 for c in range(self.max_c):
                     a_centered = a - self.center_a
                     b_centered = b - self.center_b
                     c_centered = c - self.center_c
-                    world_sphere_radius = (self.center_a + self.center_b + self.center_c) / 3
                     point_radius = (a_centered ** 2 + b_centered ** 2 + c_centered ** 2) ** (1 / 2)
                     if point_radius <= world_sphere_radius:
                         self.material[a, b, c][Water] = round(

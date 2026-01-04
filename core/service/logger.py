@@ -1,11 +1,11 @@
 import logging
 from pathlib import Path
 
-from core.service import settings
+from core.service.settings import Settings
 
 
 class Logger:
-    settings = settings.Settings()
+    settings = Settings()
 
     LOG_FORMATTER = logging.Formatter(settings.LOG_FORMAT)
     LOG_LEVEL_NAMES = {
