@@ -28,3 +28,6 @@ class Settings(Singleton):
         self.CAMERA_MIN_ZOOM = 0.01
         self.CAMERA_MAX_ZOOM = 500
         self.CAMERA_INITIAL_ZOOM = 25
+
+        self.BUTTON_WIDTH = 250
+        self.BUTTON_HEIGHT = 50

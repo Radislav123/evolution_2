@@ -29,7 +29,10 @@ class StatesButton(Button):
 
 
 class DynamicTextButton(StatesButton):
-    def __init__(self, text_function: Callable[[None], str], **kwargs) -> None:
+    def __init__(self, text_function: Callable[[], str], **kwargs) -> None:
         super().__init__(**kwargs)
 
         self.text_function = text_function
+
+    def on_update(self, delta_time: int) -> None:
+        self.text = self.text_function()

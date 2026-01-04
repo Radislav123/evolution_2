@@ -157,8 +157,8 @@ class WorldProjection(Object):
             for face_index, face_vertices in enumerate(voxels_vertices):
                 is_visible = face_index in self.visible_faces()
                 if self.calculate_faces and is_visible:
-                    voxel_color = self.colors[a, b, c] if is_visible else ProjectColors.NOT_VISIBLE_FACE_COLOR
-                    face = default_faces[face_index].copy(voxel_offset_x, voxel_offset_y, voxel_color)
+                    face_color = self.colors[a, b, c] if is_visible else ProjectColors.NOT_VISIBLE_FACE_COLOR
+                    face = default_faces[face_index].copy(voxel_offset_x, voxel_offset_y, face_color)
                     voxel_faces.append(face)
                 if self.calculate_edges:
                     edges_color = ProjectColors.VISIBLE_EDGE_COLOR if is_visible else ProjectColors.NOT_VISIBLE_EDGE_COLOR

@@ -4,8 +4,8 @@
 class ProjectColors:
     PLACEHOLDER = (239, 64, 245, 255)
 
-    VISIBLE_EDGE_COLOR = (0, 0, 0, 10)
-    NOT_VISIBLE_EDGE_COLOR = (0, 0, 0, 3)
+    VISIBLE_EDGE_COLOR = (0, 0, 0, 2)
+    NOT_VISIBLE_EDGE_COLOR = (0, 0, 0, 1)
     NOT_VISIBLE_FACE_COLOR = (255, 255, 255, 0)
 
     WHITE = (255, 255, 255, 255)

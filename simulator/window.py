@@ -12,7 +12,7 @@ from arcade.gui import UIAnchorLayout, UIBoxLayout
 from arcade.types import Color
 from matplotlib import pyplot
 
-from core.gui.button import StatesButton
+from core.gui.button import Button
 from core.gui.camera import Camera
 from core.service.object import ObjectMixin
 from simulator.world import World
@@ -367,13 +367,19 @@ class Window(arcade.Window, ObjectMixin):
         # self.on_draw()
         # self.ui_manager.set_tab_label_positions(self.tab_container)
 
-        anchor_layout = UIAnchorLayout()
-        box_layout = UIBoxLayout()
-        buttons = [StatesButton(text = f"button_{index}") for index in range(3)]
-        for index, button in enumerate(buttons):
-            box_layout.add(button)
-        anchor_layout.add(box_layout, anchor_x = "left", anchor_y = "top")
-        self.ui_manager.add(anchor_layout)
+        upper_right_corner_layout = UIBoxLayout()
+        common_layout = UIAnchorLayout()
+        common_layout.add(upper_right_corner_layout, anchor_x = "right", anchor_y = "top")
+
+        centralize_camera_button = Button(
+            text = "Поместить камеру по центру",
+            width = self.settings.BUTTON_WIDTH,
+            height = self.settings.BUTTON_HEIGHT
+        )
+        centralize_camera_button.on_click = self.camera.centralize
+        upper_right_corner_layout.add(centralize_camera_button)
+
+        self.ui_manager.add(common_layout)
 
     def stop(self) -> None:
         if self.world is not None:
@@ -551,9 +557,9 @@ class Window(arcade.Window, ObjectMixin):
         self.set_update_rate(1 / tps)
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
-        if not self.mouse_dragged and self.draw_edges_tab:
+        if not self.mouse_dragged:
             if button == MouseButtons.LEFT.value:
-                print(x, y, self.world.projection.coeff)
+                print(x, y)
 
         self.mouse_dragged = False
 
