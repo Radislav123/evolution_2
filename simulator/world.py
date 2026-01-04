@@ -1,107 +1,38 @@
 import datetime
-import functools
-import itertools
 import os
 import random
-from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Self
+from typing import Any
 
 import arcade
 import numpy as np
 import pyglet.gl as gl
-from arcade import ArcadeContext, get_window
-from arcade.gl import Buffer, Geometry, Program
-from arcade.shape_list import ShapeElementList
 from arcade.types import PointList, RGBA255
 
-from core.service.object import Object, ProjectionObject
+from core.service.colors import ProjectColors
+from core.service.object import Object, ShapeObject
 from simulator.material import Materials, Vacuum, Water
 
 
 class Coordinates:
     # Отображение точки в трехмерном пространстве на двумерное
     @staticmethod
-    @functools.cache
     def convert_3_to_2(a: float, b: float, c: float) -> tuple[float, float]:
         x = a + b / 4
         y = c + b / 3
         return x, y
 
 
-# См. arcade.shape_list.Shape
-class CopyableShape:
-    # полностью непрозрачный розовый - для заметности
-    default_color: RGBA255 = (239, 64, 245, 255)
-    mode: int
-    ctx: ArcadeContext
-    program: Program
-
-    # Сначала применяется смещение (offset_[x|y]), потом масштаб (scale)
-    def __init__(
-            self,
-            points: PointList,
-            offset_x: float = 0,
-            offset_y: float = 0,
-            color: RGBA255 = default_color,
-            copying: bool = False
-    ) -> None:
-        self.is_copy = False
-        self.offset_x = offset_x
-        self.offset_y = offset_y
-        self.default_points = points
-        self.points = [(x + self.offset_x, y + self.offset_y) for x, y in self.default_points]
-        self.color = color
-
-        # Pack the data into a single array
-        self.data = array("f", (number for point in self.points for obj in (point, self.color) for number in obj))
-        self.vertices = len(points)
-
-        self.geometry: Geometry | None = None
-        self.buffer: Buffer | None = None
-
-    def __copy__(self) -> Self:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement __copy__. Use copy instead.")
-
-    def __deepcopy__(self, memo) -> Self:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement __deepcopy__. Use copy instead.")
-
-    def draw(self) -> None:
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement draw. Not draw in alone. Use ShapeElementList.draw instead."
-        )
-
-    @staticmethod
-    def triangulate(point_list: PointList) -> PointList:
-        half = len(point_list) // 2
-        interleaved = itertools.chain.from_iterable(
-            itertools.zip_longest(point_list[:half], reversed(point_list[half:]))
-        )
-        triangulated_point_list = [p for p in interleaved if p is not None]
-        return triangulated_point_list
-
-    def copy(self, offset_x: float = None, offset_y: float = None, color: RGBA255 = None) -> Self:
-        if offset_x is None:
-            offset_x = self.offset_x
-        if offset_y is None:
-            offset_y = self.offset_y
-        if color is None:
-            color = self.color
-
-        instance = self.__class__(self.default_points, offset_x, offset_y, color, True)
-        return instance
-
-
-class Face(CopyableShape):
-    mode = gl.GL_TRIANGLE_STRIP
+class Face(ShapeObject):
+    default_mode = gl.GL_TRIANGLE_STRIP
 
     def __init__(
             self,
             points: PointList,
             offset_x: float = 0,
             offset_y: float = 0,
-            color: RGBA255 = CopyableShape.default_color,
+            color: RGBA255 = None,
             copying: bool = False
     ) -> None:
         if not copying:
@@ -111,15 +42,15 @@ class Face(CopyableShape):
 
 # Подразумевается не ребро, а ребра грани, то есть четыре ребра.
 # Называется не FaceEdges в угоду краткости.
-class Edge(CopyableShape):
-    mode = gl.GL_LINE_STRIP
+class Edge(ShapeObject):
+    default_mode = gl.GL_LINE_STRIP
 
     def __init__(
             self,
             points: PointList,
             offset_x: float = 0,
             offset_y: float = 0,
-            color: RGBA255 = CopyableShape.default_color,
+            color: RGBA255 = None,
             copying: bool = False
     ) -> None:
         if not copying:
@@ -130,11 +61,6 @@ class Edge(CopyableShape):
 
 # служит только как хранилище
 class Voxel:
-    visible_edge_color = (0, 0, 0, 3)
-    not_visible_edge_color = (0, 0, 0, 10)
-    not_visible_face_color = (255, 255, 255, 0)
-    image_size = 100
-
     vertices_3 = (
         # (a, b, c)
         (0, 0, 0),
@@ -158,17 +84,15 @@ class Voxel:
     ]
 
 
-class WorldProjection(ProjectionObject):
-    # todo: remove cache?
-    voxels_cache: dict[float, tuple[np.ndarray, ShapeElementList, list[float]]] = {}
-
+class WorldProjection(Object):
     def __init__(self, world: World) -> None:
-        # Это было в arcade.shape_list.Shape, но вынесено сюда, чтобы исполняться лишь единожды
-        CopyableShape.ctx = get_window().ctx
-        CopyableShape.program = CopyableShape.ctx.line_generic_with_colors_program
-
         super().__init__()
         self.world = world
+        self.center_x, self.center_y = Coordinates.convert_3_to_2(
+            self.world.center_a,
+            self.world.center_b,
+            self.world.center_c
+        )
 
         # Видимость тайлов
         self.visibles = np.array([True for _ in range(self.world.material.size)]).reshape(self.world.shape)
@@ -179,7 +103,8 @@ class WorldProjection(ProjectionObject):
                                                             for a in range(self.world.max_a)
                                                             for b in range(self.world.max_b)
                                                             for c in range(self.world.max_c)}
-        self.voxels_to_update: set[tuple[int, int, int]] = set()
+        self.faces_to_update: set[tuple[int, int, int]] = set()
+
         # В каждой ячейке лежит список граней тайла
         self.faces = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
         self.faces_set = arcade.shape_list.ShapeElementList()
@@ -210,7 +135,7 @@ class WorldProjection(ProjectionObject):
         for coordinates in self.colors_to_update:
             a, b, c = coordinates
             self.colors[a, b, c] = self.mix_color(a, b, c)
-            self.voxels_to_update.add(coordinates)
+            self.faces_to_update.add(coordinates)
 
         default_faces: list[Face] = []
         default_edges: list[Edge] = []
@@ -222,7 +147,7 @@ class WorldProjection(ProjectionObject):
                 edge = Edge(face_vertices)
                 default_edges.append(edge)
 
-        for a, b, c in self.voxels_to_update:
+        for a, b, c in self.faces_to_update:
             voxel_offset_x, voxel_offset_y = Coordinates.convert_3_to_2(a, b, c)
             voxel_faces = []
             voxel_edges = []
@@ -230,11 +155,11 @@ class WorldProjection(ProjectionObject):
             for face_index, face_vertices in enumerate(voxels_vertices):
                 is_visible = face_index in self.visible_faces()
                 if self.calculate_faces and is_visible:
-                    voxel_color = self.colors[a, b, c] if is_visible else Voxel.not_visible_face_color
+                    voxel_color = self.colors[a, b, c] if is_visible else ProjectColors.NOT_VISIBLE_FACE_COLOR
                     face = default_faces[face_index].copy(voxel_offset_x, voxel_offset_y, voxel_color)
                     voxel_faces.append(face)
                 if self.calculate_edges:
-                    edges_color = Voxel.visible_edge_color if is_visible else Voxel.not_visible_edge_color
+                    edges_color = ProjectColors.VISIBLE_EDGE_COLOR if is_visible else ProjectColors.NOT_VISIBLE_EDGE_COLOR
                     edge = default_edges[face_index].copy(voxel_offset_x, voxel_offset_y, edges_color)
                     voxel_edges.append(edge)
 

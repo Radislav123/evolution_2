@@ -22,3 +22,9 @@ class Settings(Singleton):
 
         self.RESOURCES_FOLDER = "resources"
         self.IMAGES_FOLDER = f"{self.RESOURCES_FOLDER}/images"
+
+        self.SPRITE_SIZE = 100
+
+        self.CAMERA_MIN_ZOOM = 0.01
+        self.CAMERA_MAX_ZOOM = 500
+        self.CAMERA_INITIAL_ZOOM = 25

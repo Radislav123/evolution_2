@@ -8,15 +8,17 @@ import arcade
 import arcade.gui
 from arcade import color, uicolor
 from arcade.future.input import MouseButtons
+from arcade.gui import UIAnchorLayout, UIBoxLayout
 from arcade.types import Color
 from matplotlib import pyplot
 
-from core.service.object import Mixin
-from simulator.camera import Camera
-from simulator.world import Coordinates, World
+from core.gui.button import StatesButton
+from core.gui.camera import Camera
+from core.service.object import ObjectMixin
+from simulator.world import World
 
 
-class TextTab(arcade.gui.UIFlatButton, Mixin):
+class TextTab(arcade.gui.UIFlatButton, ObjectMixin):
     default_style = {
         "normal": arcade.gui.UIFlatButton.UIStyle(
             bg = color.BLACK
@@ -128,7 +130,8 @@ class DrawGraphsTab(TextTab):
             pass
 
 
-class TextTabContainer(Mixin):
+# todo: remove TextTabContainer and all tab classes?
+class TextTabContainer(ObjectMixin):
     class Corner(arcade.gui.UIAnchorLayout):
         children: list[TextTab]
 
@@ -202,7 +205,7 @@ class TextTabContainer(Mixin):
                         tab.tab_label.text = tab.tab_label._text()
 
 
-class UIManager(arcade.gui.UIManager, Mixin):
+class UIManager(arcade.gui.UIManager, ObjectMixin):
     def add_tabs(self, tabs: TextTabContainer) -> TextTabContainer:
         for corner in tabs.corners:
             self.add(corner)
@@ -216,7 +219,7 @@ class UIManager(arcade.gui.UIManager, Mixin):
                 tab.tab_label.set_position()
 
 
-class PerformanceGraph(arcade.PerfGraph, Mixin):
+class PerformanceGraph(arcade.PerfGraph, ObjectMixin):
     def __init__(self, window: "Window", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -302,7 +305,7 @@ class PerformanceGraph(arcade.PerfGraph, Mixin):
             arcade.draw_line_strip(point_list, self.line_color)
 
 
-class Window(arcade.Window, Mixin):
+class Window(arcade.Window, ObjectMixin):
     # desired_tps = int(1 / update_rate)
     # update_rate = 1 / tps
     desired_tps: int
@@ -339,6 +342,7 @@ class Window(arcade.Window, Mixin):
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
     def start(self) -> None:
+        self.ui_manager.enable()
         size = (
             (1, 1, 1),
             (5, 7, 9),
@@ -353,16 +357,23 @@ class Window(arcade.Window, Mixin):
         self.world.start()
 
         self.world.projection.start()
-        self.camera.start(Coordinates.convert_3_to_2(self.world.center_a, self.world.center_b, self.world.center_c))
+        self.camera.start(self.world.projection.center_x, self.world.projection.center_y)
 
-        self.construct_tabs()
-        self.construct_graphs()
+        # self.construct_tabs()
+        # self.construct_graphs()
 
+        # todo: remove on_draw?
         # необходимо, чтобы разместить плашки, так как элементы размещаются на экране только после первой отрисовки
-        self.on_draw()
-        self.ui_manager.set_tab_label_positions(self.tab_container)
+        # self.on_draw()
+        # self.ui_manager.set_tab_label_positions(self.tab_container)
 
-        self.ui_manager.enable()
+        anchor_layout = UIAnchorLayout()
+        box_layout = UIBoxLayout()
+        buttons = [StatesButton(text = f"button_{index}") for index in range(3)]
+        for index, button in enumerate(buttons):
+            box_layout.add(button)
+        anchor_layout.add(box_layout, anchor_x = "left", anchor_y = "top")
+        self.ui_manager.add(anchor_layout)
 
     def stop(self) -> None:
         if self.world is not None:
@@ -506,15 +517,19 @@ class Window(arcade.Window, Mixin):
         self.clear()
         self.camera.use()
 
-        draw_objects = bool(self.draw_objects_tab)
+        # draw_objects = bool(self.draw_objects_tab)
+        # draw_faces = True
+        # draw_edges = bool(self.draw_edges_tab)
         draw_faces = True
-        draw_edges = bool(self.draw_edges_tab)
+        draw_edges = True
         self.world.projection.on_draw(draw_faces, draw_edges)
 
         self.ui_manager.draw()
         self.tab_container.draw_all()
 
-        if self.draw_graphs_tab:
+        # draw_graphs = bool(self.draw_graphs_tab)
+        draw_graphs = False
+        if draw_graphs:
             self.graphs.draw()
 
     def on_update(self, _: float) -> None:
@@ -525,8 +540,8 @@ class Window(arcade.Window, Mixin):
             error.window = self
             raise error
         finally:
-            if self.world.age % self.settings.TAB_UPDATE_PERIOD == 0:
-                self.count_resources()
+            # if self.world.age % self.settings.TAB_UPDATE_PERIOD == 0:
+            #     self.count_resources()
             self.previous_timestamp = self.timestamp
             self.timestamp = time.time()
             self.count_statistics()

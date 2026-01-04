@@ -1,14 +1,19 @@
 from arcade import Camera2D
 
+from core.service.object import ObjectMixin
 
-class Camera(Camera2D):
-    min_zoom = 0.01
-    max_zoom = 500
-    initial_zoom = 25
 
-    def start(self, world_center_2: tuple[float, float]) -> None:
+class Camera(Camera2D, ObjectMixin):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.min_zoom = self.settings.CAMERA_MIN_ZOOM
+        self.max_zoom = self.settings.CAMERA_MAX_ZOOM
+        self.initial_zoom = self.settings.CAMERA_INITIAL_ZOOM
+
+    def start(self, center_x: float, center_y: float) -> None:
         self.zoom = self.initial_zoom
-        self.position = world_center_2
+        self.position = (center_x, center_y)
 
     def change_zoom(self, mouse_x: int, mouse_y: int, offset: float) -> None:
         scroll_coeff = self.max_zoom / 10
