@@ -3,7 +3,7 @@ import os
 import random
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Generator
 
 import arcade
 import numpy as np
@@ -15,6 +15,7 @@ from core.service.object import Object, ShapeObject
 from simulator.material import Materials, Vacuum, Water
 
 
+# todo: remove class?
 class Coordinates:
     # Отображение точки в трехмерном пространстве на двумерное
     @staticmethod
@@ -89,9 +90,9 @@ class WorldProjection(Object):
         super().__init__()
         self.world = world
         self.center_x, self.center_y = Coordinates.convert_3_to_2(
-            self.world.center_a,
-            self.world.center_b,
-            self.world.center_c
+            self.world.center_x,
+            self.world.center_y,
+            self.world.center_z
         )
 
         # Видимость тайлов
@@ -101,10 +102,7 @@ class WorldProjection(Object):
         self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
         # Порядок добавления важен, так как от него зависит порядок отрисовки, а значит и то,
         # что будет нарисовано на переднем, а что на фоне
-        self.colors_to_update: dict[tuple[int, int, int], None] = {(a, b, c): None
-                                                                   for b in range(self.world.max_b - 1, -1, -1)
-                                                                   for a in range(self.world.max_a)
-                                                                   for c in range(self.world.max_c)}
+        self.colors_to_update: dict[tuple[int, int, int], None] = {point: None for point in self.world.iterate()}
         self.faces_to_update: dict[tuple[int, int, int], None] = {}
 
         # В каждой ячейке лежит список граней тайла
@@ -226,11 +224,20 @@ class WorldProjection(Object):
 class World(Object):
     def __init__(self, shape: tuple[int, int, int], seed: int = None) -> None:
         super().__init__()
-        width, height, depth = shape
         self.shape = shape
-        self.max_a = width
-        self.max_b = height
-        self.max_c = depth
+        self.width, self.height, self.length = self.shape
+
+        self.min_x = -self.width // 2
+        self.min_y = -self.length // 2
+        self.min_z = -self.height // 2
+
+        self.max_x = self.min_x + self.width
+        self.max_y = self.min_y + self.length
+        self.max_z = self.min_z + self.height
+
+        self.center_x = 0
+        self.center_y = 0
+        self.center_z = 0
 
         if seed is None:
             seed = datetime.datetime.now().timestamp()
@@ -240,11 +247,7 @@ class World(Object):
         self.age = 0
         self.max_material_amount = 1000
 
-        self.center_a = self.max_a // 2
-        self.center_b = self.max_b // 2
-        self.center_c = self.max_c // 2
-
-        cells_number = self.max_a * self.max_b * self.max_c
+        cells_number = self.width * self.length * self.height
         # В каждой ячейке лежит словарь с веществом и его количеством
         # {material: amount}
         self.material = np.array([defaultdict(int) for _ in range(cells_number)]).reshape(self.shape)
@@ -272,25 +275,24 @@ class World(Object):
     def prepare(self) -> None:
         self.generate_materials()
 
-    def generate_materials(self) -> None:
-        world_sphere_radius = max((self.center_a + self.center_b + self.center_c) / 3, 1)
-        for a in range(self.max_a):
-            for b in range(self.max_b):
-                for c in range(self.max_c):
-                    a_centered = a - self.center_a
-                    b_centered = b - self.center_b
-                    c_centered = c - self.center_c
-                    point_radius = (a_centered ** 2 + b_centered ** 2 + c_centered ** 2) ** (1 / 2)
-                    if point_radius <= world_sphere_radius:
-                        self.material[a, b, c][Water] = round(
-                            self.max_material_amount * point_radius / world_sphere_radius
-                        )
+    def iterate(self) -> Generator[tuple[int, int, int]]:
+        return ((x, y, z)
+                for z in range(self.min_z, self.max_z + 1)
+                for y in range(self.min_y, self.max_y + 1)
+                for x in range(self.min_x, self.max_x + 1))
 
-        for a in range(self.max_a):
-            for b in range(self.max_b):
-                for c in range(self.max_c):
-                    materials: Materials = self.material[a, b, c]
-                    total_amount = sum(amount for amount in materials.values())
-                    assert total_amount <= self.max_material_amount, f"Total amount of materials in tile ({total_amount}) must be lower or equal to max_material_amount ({self.max_material_amount})"
-                    if total_amount < self.max_material_amount:
-                        materials[Vacuum] = self.max_material_amount - total_amount
+    def generate_materials(self) -> None:
+        world_sphere_radius = max((self.width + self.length + self.height) / 2 / 3, 1)
+        for x, y, z in self.iterate():
+            point_radius = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+            if point_radius <= world_sphere_radius:
+                self.material[x, y, z][Water] = round(
+                    self.max_material_amount * point_radius / world_sphere_radius
+                )
+
+        for x, y, z in self.iterate():
+            materials: Materials = self.material[x, y, z]
+            total_amount = sum(amount for amount in materials.values())
+            assert total_amount <= self.max_material_amount, f"Total amount of materials in tile ({total_amount}) must be lower or equal to max_material_amount ({self.max_material_amount})"
+            if total_amount < self.max_material_amount:
+                materials[Vacuum] = self.max_material_amount - total_amount
