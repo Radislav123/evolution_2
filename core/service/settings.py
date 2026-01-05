@@ -17,10 +17,11 @@ class Settings(Singleton):
 
         self.SPRITE_SIZE = 100
 
-        # todo: remove camera zoom settings?
         self.CAMERA_MIN_ZOOM = 0.01
         self.CAMERA_MAX_ZOOM = 500
         self.CAMERA_INITIAL_ZOOM = 25
 
-        self.BUTTON_WIDTH = 250
-        self.BUTTON_HEIGHT = 50
+        self.BUTTON_WIDTH = 230
+        self.BUTTON_HEIGHT = 30
+        # В секундах
+        self.BUTTON_UPDATE_PERIOD = 0.5

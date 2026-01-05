@@ -11,7 +11,7 @@ from core.service.settings import Settings
 from core.service.texture import Texture
 
 
-class ObjectMixin:
+class ProjectMixin:
     settings = Settings()
 
     def __init_subclass__(cls):
@@ -19,7 +19,7 @@ class ObjectMixin:
         cls.logger = Logger(cls.__name__)
 
 
-class Object(ObjectMixin):
+class Object(ProjectMixin):
     pass
 
 
@@ -53,7 +53,6 @@ class ShapeObject(Shape, ProjectionObject):
         colors = [color] * len(points)
 
         super().__init__(points, colors, self.default_mode)
-        super(ProjectionObject, self).__init__()
 
     def __copy__(self) -> Self:
         raise NotImplementedError(f"{self.__class__.__name__} does not implement __copy__. Use copy instead.")
@@ -97,7 +96,6 @@ class SpriteObject(Sprite, ProjectionObject):
             ProjectColors.TRANSPARENT_BLACK
         )
         super().__init__(texture, 1, 0, 0, 0)
-        super(ProjectionObject, self).__init__()
 
 
 class PhysicalObject(Object):

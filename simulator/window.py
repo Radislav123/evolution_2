@@ -3,14 +3,14 @@ import arcade.gui
 from arcade.future.input import MouseButtons
 from arcade.gui import UIAnchorLayout, UIBoxLayout, UIManager
 
-from core.gui.button import Button
+from core.gui.button import Button, DynamicTextButton
 from core.gui.projector import Projector
 from core.service.colors import ProjectColors
-from core.service.object import ObjectMixin
+from core.service.object import ProjectMixin
 from simulator.world import World
 
 
-class Window(arcade.Window, ObjectMixin):
+class Window(arcade.Window, ProjectMixin):
     def __init__(self, width: int, height: int) -> None:
         super().__init__(width, height, center_window = True)
 
@@ -22,10 +22,19 @@ class Window(arcade.Window, ObjectMixin):
 
         arcade.set_background_color(ProjectColors.WHITE)
 
-        # todo: remove shape_list
-        self.shape_list = arcade.shape_list.ShapeElementList()
-        shape = arcade.shape_list.create_rectangle_filled(100, 100, 100, 100, arcade.color.RED)
-        self.shape_list.append(shape)
+    def start_interface(self) -> None:
+        upper_right_corner_layout = UIBoxLayout()
+        common_layout = UIAnchorLayout()
+        common_layout.add(upper_right_corner_layout, anchor_x = "right", anchor_y = "top")
+
+        centralize_camera_button = Button(text = "Поместить камеру по центру")
+        centralize_camera_button.on_click = self.projector.centralize
+        upper_right_corner_layout.add(centralize_camera_button)
+
+        world_age_button = DynamicTextButton(text_function = lambda: str(self.world.age), update_period = 0.1)
+        upper_right_corner_layout.add(world_age_button)
+
+        self.ui_manager.add(common_layout)
 
     def start(self) -> None:
         self.projector.use()
@@ -46,19 +55,7 @@ class Window(arcade.Window, ObjectMixin):
         self.world.projection.start()
         self.projector.start()
 
-        upper_right_corner_layout = UIBoxLayout()
-        common_layout = UIAnchorLayout()
-        common_layout.add(upper_right_corner_layout, anchor_x = "right", anchor_y = "top")
-
-        centralize_camera_button = Button(
-            text = "Поместить камеру по центру",
-            width = self.settings.BUTTON_WIDTH,
-            height = self.settings.BUTTON_HEIGHT
-        )
-        centralize_camera_button.on_click = self.projector.centralize
-        upper_right_corner_layout.add(centralize_camera_button)
-
-        self.ui_manager.add(common_layout)
+        self.start_interface()
 
     def stop(self) -> None:
         if self.world is not None:
@@ -70,7 +67,6 @@ class Window(arcade.Window, ObjectMixin):
         draw_faces = True
         draw_edges = True
         self.world.projection.on_draw(draw_faces, draw_edges)
-        self.shape_list.draw()
 
         self.ui_manager.draw()
 
@@ -81,8 +77,7 @@ class Window(arcade.Window, ObjectMixin):
             error.window = self
             raise error
         finally:
-            if self.world.age % 100 == 0:
-                print(f"World age: {self.world.age}")
+            pass
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if not self.mouse_dragged:
@@ -95,7 +90,6 @@ class Window(arcade.Window, ObjectMixin):
         # buttons - битовая маска.
         # Сравнивается ==, чтобы исключить действия при нажатии сразу нескольких кнопок
         if buttons == MouseButtons.LEFT.value:
-            print(f"move: {dx, dy}")
             self.projector.move(dx, dy)
         elif buttons == MouseButtons.MIDDLE.value:
             # todo: реализовать вращение мира
@@ -105,6 +99,5 @@ class Window(arcade.Window, ObjectMixin):
         return None
 
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> bool | None:
-        print(f"zoom: {scroll_x, scroll_y}")
         self.projector.change_zoom(x, y, scroll_x + scroll_y)
         return None

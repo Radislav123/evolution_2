@@ -1,10 +1,18 @@
+import time
 from typing import Callable
 
 from arcade.gui import UIFlatButton, UIOnClickEvent
 
+from core.service.object import ProjectMixin
 
-class Button(UIFlatButton):
-    pass
+
+class Button(UIFlatButton, ProjectMixin):
+    def __init__(self, width: float = None, height: float = None, **kwargs) -> None:
+        if width is None:
+            width = self.settings.BUTTON_WIDTH
+        if height is None:
+            height = self.settings.BUTTON_HEIGHT
+        super().__init__(width = width, height = height, **kwargs)
 
 
 class StatesButton(Button):
@@ -29,10 +37,27 @@ class StatesButton(Button):
 
 
 class DynamicTextButton(StatesButton):
-    def __init__(self, text_function: Callable[[], str], **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(
+            self,
+            text_function: Callable[[], str],
+            update_period: float = None,
+            state_count: int = 2,
+            state_to_text: list[str] = None,
+            **kwargs
+    ) -> None:
+        if state_to_text is None:
+            state_to_text = ["" for _ in range(state_count)]
+        super().__init__(state_count = state_count, state_to_text = state_to_text, **kwargs)
 
         self.text_function = text_function
+        if update_period is None:
+            update_period = self.settings.BUTTON_UPDATE_PERIOD
+        self.update_period = update_period
+        # Метка последнего обновления
+        self.update_timestamp: float = 0
 
     def on_update(self, delta_time: int) -> None:
-        self.text = self.text_function()
+        timestamp = time.time()
+        if self.state == 0 and (timestamp - self.update_timestamp) >= self.update_period:
+            self.text = self.text_function()
+            self.update_timestamp = timestamp
