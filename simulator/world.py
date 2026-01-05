@@ -224,14 +224,10 @@ class WorldProjection(Object):
 
 
 class World(Object):
-    def __init__(
-            self,
-            width: int,
-            height: int,
-            depth: int,
-            seed: int = None
-    ) -> None:
+    def __init__(self, shape: tuple[int, int, int], seed: int = None) -> None:
         super().__init__()
+        width, height, depth = shape
+        self.shape = shape
         self.max_a = width
         self.max_b = height
         self.max_c = depth
@@ -249,7 +245,6 @@ class World(Object):
         self.center_c = self.max_c // 2
 
         cells_number = self.max_a * self.max_b * self.max_c
-        self.shape = (self.max_a, self.max_b, self.max_c)
         # В каждой ячейке лежит словарь с веществом и его количеством
         # {material: amount}
         self.material = np.array([defaultdict(int) for _ in range(cells_number)]).reshape(self.shape)

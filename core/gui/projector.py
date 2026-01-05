@@ -1,30 +1,24 @@
+import math
+
+import arcade
 from arcade.camera import CameraData, PerspectiveProjector
 from arcade.gui import UIOnClickEvent
-from arcade.types import Point3
+from pyglet.math import Vec3
 
 from core.service.object import ProjectMixin
 
 
 class ProjectCameraData(CameraData, ProjectMixin):
-    def __init__(
-            self,
-            position: Point3 = None,
-            up: Point3 = None,
-            forward: Point3 = None,
-            zoom: float = None
-    ) -> None:
-        # todo: 500 заменить на значение, зависящее от размера мира, чтобы весь мир помещался на экране?
-        # Отодвигаем камеру от (0, 0, 0) в (0, 0, 500), чтобы видеть объекты в центре сцены
-        self.centralized_position = (10, 10, 500)
-        if position is None:
-            position = self.centralized_position
-        if up is None:
-            up = (0, 1, 0)
-        if forward is None:
-            forward = (0, 0, -1)
-        if zoom is None:
-            zoom = self.settings.CAMERA_INITIAL_ZOOM
-        super().__init__(position, up, forward, zoom)
+    def __init__(self) -> None:
+        self.rotation_radius = self.settings.CAMERA_ROTATION_RADIUS
+        self.yaw: float = self.settings.CAMERA_YAW
+        self.pitch: float = self.settings.CAMERA_PITCH
+
+        # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
+        self.centralized_position = (0, 0, self.rotation_radius)
+        self.world_center = (0, 0, 0)
+
+        super().__init__(position = self.centralized_position, zoom = self.settings.CAMERA_ZOOM)
 
 
 class Projector(PerspectiveProjector, ProjectMixin):
@@ -33,40 +27,65 @@ class Projector(PerspectiveProjector, ProjectMixin):
     def __init__(self) -> None:
         camera_data = ProjectCameraData()
         super().__init__(view = camera_data)
-        # self.view: ProjectCameraData
         # Увеличиваем дальность прорисовки в 10 раз, чтобы отрисовывалось больше объектов
         self.projection.far *= 10
 
     def centralize(self, _: UIOnClickEvent) -> None:
         self.view.position = self.view.centralized_position
-        self.view.zoom = self.settings.CAMERA_INITIAL_ZOOM
+        self.view.zoom = self.settings.CAMERA_ZOOM
+
+        self.view.yaw = self.settings.CAMERA_YAW
+        self.view.pitch = self.settings.CAMERA_PITCH
+        self.view.forward, self.view.up = arcade.camera.grips.look_at(self.view, self.view.world_center)
+        self.view.up = (0, 1, 0)
 
     def start(self) -> None:
         # noinspection PyTypeChecker
         self.centralize(UIOnClickEvent(self, None, None, None, None))
 
-    # todo: смещение относительно курсора не работает - исправить
-    def change_zoom(self, mouse_x: int, mouse_y: int, offset: float) -> None:
-        scroll_coeff = self.settings.CAMERA_MAX_ZOOM / 10
-        zoom_offset = offset * self.view.zoom / self.settings.CAMERA_MAX_ZOOM * scroll_coeff
+    # Перемещает камеру вправо/влево и вверх/вниз относительно направления взгляда
+    def pan(self, offset_x: float, offset_y: float) -> None:
+        old_position = Vec3(*self.view.position)
+        forward = Vec3(*self.view.forward)
+        up = Vec3(*self.view.up)
+        right = forward.cross(up)
 
-        pre_zoom_position = self.unproject((mouse_x, mouse_y))
+        distance = abs(old_position.dot(forward))
+        fov_radian = math.radians(self.projection.fov)
+        world_unit_per_pixel = (2 * distance * math.tan(fov_radian / 2)) / self._window.height / self.view.zoom
+
+        offset = (right * -offset_x + up * -offset_y) * world_unit_per_pixel
+        new_position = old_position + offset
+        self.view.position = (new_position.x, new_position.y, new_position.z)
+
+    # Перемещает камеру вперед/назад относительно направления взгляда
+    def dolly(self, offset_z: float) -> None:
+        old_position = Vec3(*self.view.position)
+        forward = Vec3(*self.view.forward)
+
+        offset = forward * offset_z
+        new_position = old_position + offset
+        self.view.position = (new_position.x, new_position.y, new_position.z)
+
+    def change_zoom(self, mouse_x: int, mouse_y: int, offset: float) -> None:
+        zoom_offset = offset * self.view.zoom * self.settings.CAMERA_ZOOM_SENSITIVITY
+
         self.view.zoom = max(
             min(self.view.zoom + zoom_offset, self.settings.CAMERA_MAX_ZOOM),
             self.settings.CAMERA_MIN_ZOOM
         )
-        post_zoom_position = self.unproject((mouse_x, mouse_y))
-        offset_x = post_zoom_position.x - pre_zoom_position.x
-        offset_y = post_zoom_position.y - pre_zoom_position.y
-        self.view.position = (
-            self.view.position[0] - offset_x,
-            self.view.position[1] - offset_y,
-            self.view.position[2]
+
+    # Вращает камеру вокруг точки перед ней на расстоянии rotation_radius
+    def rotate(self, offset_x: float, offset_y: float) -> None:
+        self.view.yaw = (self.view.yaw + offset_x * self.settings.CAMERA_ROTATION_SENSITIVITY) % (math.pi * 2)
+        self.view.pitch = (self.view.pitch + offset_y * self.settings.CAMERA_ROTATION_SENSITIVITY) % (math.pi * 2)
+
+        pivot = Vec3(*self.view.position) + Vec3(*self.view.forward) * self.view.rotation_radius
+        offset = Vec3(
+            -self.view.rotation_radius * math.cos(self.view.pitch) * math.sin(self.view.yaw),
+            -self.view.rotation_radius * math.sin(self.view.pitch),
+            self.view.rotation_radius * math.cos(self.view.pitch) * math.cos(self.view.yaw)
         )
 
-    def move(self, offset_x: float, offset_y: float) -> None:
-        self.view.position = (
-            self.view.position[0] - offset_x / self.view.zoom,
-            self.view.position[1] - offset_y / self.view.zoom,
-            self.view.position[2]
-        )
+        self.view.position = pivot + offset
+        self.view.forward, self.view.up = arcade.camera.grips.look_at(self.view, pivot)

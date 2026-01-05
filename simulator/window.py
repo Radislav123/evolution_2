@@ -3,8 +3,9 @@ from collections import defaultdict, deque
 
 import arcade
 import arcade.gui
-from arcade.future.input import MouseButtons
+from arcade.future.input import Keys, MouseButtons
 from arcade.gui import UIAnchorLayout, UIBoxLayout, UIManager
+from pyglet.event import EVENT_HANDLE_STATE
 
 from core.gui.button import Button, DynamicTextButton
 from core.gui.projector import Projector
@@ -29,6 +30,8 @@ class Window(arcade.Window, ProjectMixin):
 
         self.projector = Projector()
         self.ui_manager = UIManager(self)
+
+        self.pressed_keys = set()
         self.mouse_dragged = False
 
         arcade.set_background_color(ProjectColors.WHITE)
@@ -82,7 +85,7 @@ class Window(arcade.Window, ProjectMixin):
             (15, 15, 15),
             (25, 25, 25)
         )[6]
-        self.world = World(*size)
+        self.world = World(self.settings.WORLD_SHAPE)
         self.world.start()
 
         self.world.projection.start()
@@ -94,7 +97,7 @@ class Window(arcade.Window, ProjectMixin):
         if self.world is not None:
             self.world.stop()
 
-    def on_draw(self) -> None:
+    def on_draw(self) -> EVENT_HANDLE_STATE:
         self.clear()
 
         draw_faces = True
@@ -114,25 +117,34 @@ class Window(arcade.Window, ProjectMixin):
             self.timestamp = time.time()
             self.count_statistics()
 
-    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
+    def on_key_press(self, symbol: int, modifiers: int) -> EVENT_HANDLE_STATE:
+        self.pressed_keys.add(symbol)
+
+    def on_key_release(self, symbol: int, modifiers: int) -> EVENT_HANDLE_STATE:
+        self.pressed_keys.remove(symbol)
+
+    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> EVENT_HANDLE_STATE:
         if not self.mouse_dragged:
             if button == MouseButtons.LEFT.value:
                 print(x, y)
 
         self.mouse_dragged = False
 
-    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> bool | None:
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> EVENT_HANDLE_STATE:
         # buttons - битовая маска.
         # Сравнивается ==, чтобы исключить действия при нажатии сразу нескольких кнопок
-        if buttons == MouseButtons.LEFT.value:
-            self.projector.move(dx, dy)
-        elif buttons == MouseButtons.MIDDLE.value:
-            # todo: реализовать вращение мира
-            # todo: в camera.centralize добавить сброс добавленных параметров вращения
-            print(f"rotate: {dx, dy}")
-        self.mouse_dragged = True
-        return None
+        if len(self.pressed_keys) == 0:
+            if buttons == MouseButtons.LEFT.value:
+                self.projector.pan(dx, dy)
+        elif Keys.LCTRL.value in self.pressed_keys:
+            if buttons == MouseButtons.LEFT.value:
+                self.projector.rotate(dx, dy)
 
-    def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> bool | None:
-        self.projector.change_zoom(x, y, scroll_x + scroll_y)
-        return None
+        self.mouse_dragged = True
+
+    def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> EVENT_HANDLE_STATE:
+        scroll = scroll_x + scroll_y
+        if len(self.pressed_keys) == 0:
+            self.projector.change_zoom(x, y, scroll)
+        elif Keys.LCTRL.value in self.pressed_keys:
+            self.projector.dolly(scroll)

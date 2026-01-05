@@ -36,6 +36,7 @@ class StatesButton(Button):
         self.update_state()
 
 
+# todo: Обновление текста на кнопке очень затратная операция - нужно ускорить это
 class DynamicTextButton(StatesButton):
     def __init__(
             self,
