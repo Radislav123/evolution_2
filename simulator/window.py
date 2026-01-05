@@ -1,3 +1,6 @@
+import time
+from collections import defaultdict, deque
+
 import arcade
 import arcade.gui
 from arcade.future.input import MouseButtons
@@ -11,8 +14,16 @@ from simulator.world import World
 
 
 class Window(arcade.Window, ProjectMixin):
+
     def __init__(self, width: int, height: int) -> None:
         super().__init__(width, height, center_window = True)
+
+        self.tps: int = 0
+        self.desired_tps: int = 0
+        self.set_tps(self.settings.MAX_TPS)
+        self.previous_timestamp = time.time()
+        self.timestamp = time.time()
+        self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
         self.world: World | None = None
 
@@ -21,6 +32,19 @@ class Window(arcade.Window, ProjectMixin):
         self.mouse_dragged = False
 
         arcade.set_background_color(ProjectColors.WHITE)
+
+    def count_statistics(self) -> None:
+        self.timings["tick"].append(self.timestamp - self.previous_timestamp)
+        timings = self.timings["tick"]
+        try:
+            self.tps = int(len(timings) / sum(timings))
+        except ZeroDivisionError:
+            self.tps = self.desired_tps
+        self.timings["tps"].append(self.tps)
+
+    def set_tps(self, tps: int) -> None:
+        self.desired_tps = tps
+        self.set_update_rate(1 / tps)
 
     def start_interface(self) -> None:
         upper_right_corner_layout = UIBoxLayout()
@@ -31,8 +55,17 @@ class Window(arcade.Window, ProjectMixin):
         centralize_camera_button.on_click = self.projector.centralize
         upper_right_corner_layout.add(centralize_camera_button)
 
-        world_age_button = DynamicTextButton(text_function = lambda: str(self.world.age), update_period = 0.1)
+        world_age_button = DynamicTextButton(
+            text_function = lambda: f"Возраст мира: {self.world.age}",
+            update_period = 0.01
+        )
         upper_right_corner_layout.add(world_age_button)
+
+        tps_button = DynamicTextButton(
+            text_function = lambda: f"tps/желаемые tps: {self.tps} / {self.desired_tps}",
+            update_period = 0.05
+        )
+        upper_right_corner_layout.add(tps_button)
 
         self.ui_manager.add(common_layout)
 
@@ -77,7 +110,9 @@ class Window(arcade.Window, ProjectMixin):
             error.window = self
             raise error
         finally:
-            pass
+            self.previous_timestamp = self.timestamp
+            self.timestamp = time.time()
+            self.count_statistics()
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if not self.mouse_dragged:

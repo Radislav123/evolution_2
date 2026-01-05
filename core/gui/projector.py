@@ -45,6 +45,7 @@ class Projector(PerspectiveProjector, ProjectMixin):
         # noinspection PyTypeChecker
         self.centralize(UIOnClickEvent(self, None, None, None, None))
 
+    # todo: смещение относительно курсора не работает - исправить
     def change_zoom(self, mouse_x: int, mouse_y: int, offset: float) -> None:
         scroll_coeff = self.settings.CAMERA_MAX_ZOOM / 10
         zoom_offset = offset * self.view.zoom / self.settings.CAMERA_MAX_ZOOM * scroll_coeff

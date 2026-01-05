@@ -15,9 +15,12 @@ class Settings(Singleton):
         self.RESOURCES_FOLDER = "resources"
         self.IMAGES_FOLDER = f"{self.RESOURCES_FOLDER}/images"
 
+        self.MAX_TPS = 1000
+        self.TIMINGS_LENGTH = 100
         self.SPRITE_SIZE = 100
 
-        self.CAMERA_MIN_ZOOM = 0.01
+        # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
+        self.CAMERA_MIN_ZOOM = 0.4
         self.CAMERA_MAX_ZOOM = 500
         self.CAMERA_INITIAL_ZOOM = 25
 
