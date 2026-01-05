@@ -89,11 +89,7 @@ class WorldProjection(Object):
     def __init__(self, world: World) -> None:
         super().__init__()
         self.world = world
-        self.center_x, self.center_y = Coordinates.convert_3_to_2(
-            self.world.center_x,
-            self.world.center_y,
-            self.world.center_z
-        )
+        self.center_x, self.center_y = Coordinates.convert_3_to_2(*self.world.center)
 
         # Видимость тайлов
         self.visibles = np.array([True for _ in range(self.world.material.size)]).reshape(self.world.shape)
@@ -225,19 +221,30 @@ class World(Object):
     def __init__(self, shape: tuple[int, int, int], seed: int = None) -> None:
         super().__init__()
         self.shape = shape
-        self.width, self.height, self.length = self.shape
+        self.width, self.length, self.height = self.shape
+        assert self.width > 0 and self.length > 0 and self.height > 0, "World width, length and height must be greater then zero"
 
-        self.min_x = -self.width // 2
-        self.min_y = -self.length // 2
-        self.min_z = -self.height // 2
+        if self.width == 1:
+            self.min_x = 0
+        else:
+            self.min_x = -self.width // 2
+        if self.length == 1:
+            self.min_y = 0
+        else:
+            self.min_y = -self.length // 2
+        if self.height == 1:
+            self.min_z = 0
+        else:
+            self.min_z = -self.height // 2
 
-        self.max_x = self.min_x + self.width
-        self.max_y = self.min_y + self.length
-        self.max_z = self.min_z + self.height
+        self.max_x = self.min_x + self.width - 1
+        self.max_y = self.min_y + self.length - 1
+        self.max_z = self.min_z + self.height - 1
 
         self.center_x = 0
         self.center_y = 0
         self.center_z = 0
+        self.center = (self.center_x, self.center_y, self.center_z)
 
         if seed is None:
             seed = datetime.datetime.now().timestamp()

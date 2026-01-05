@@ -16,6 +16,7 @@ class ProjectCameraData(CameraData, ProjectMixin):
 
         # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
         self.centralized_position = (0, 0, self.rotation_radius)
+        # Должен совпадать с World.center
         self.world_center = (0, 0, 0)
 
         super().__init__(position = self.centralized_position, zoom = self.settings.CAMERA_ZOOM)
