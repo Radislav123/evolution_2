@@ -1,69 +1,33 @@
 import datetime
 import os
 import random
+from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Generator
+from ctypes import c_int
+from typing import Any, Generator, TYPE_CHECKING
 
 import arcade
+import arcade.gl.geometry
 import numpy as np
-import pyglet.gl as gl
-from arcade.types import PointList, RGBA255
+import pyglet
+from arcade import ArcadeContext, get_window
+from arcade.gl import BufferDescription, Geometry
+from arcade.types import Point3
 
 from core.service.colors import ProjectColors
-from core.service.object import Object, ShapeObject
+from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Vacuum, Water
 
 
-# todo: remove class?
-class Coordinates:
-    # Отображение точки в трехмерном пространстве на двумерное
-    @staticmethod
-    def convert_3_to_2(a: float, b: float, c: float) -> tuple[float, float]:
-        x = a + b / 4
-        y = c + b / 3
-        return x, y
+if TYPE_CHECKING:
+    from simulator.window import ProjectWindow
 
 
-class Face(ShapeObject):
-    default_mode = gl.GL_TRIANGLE_STRIP
-
-    def __init__(
-            self,
-            points: PointList,
-            offset_x: float = 0,
-            offset_y: float = 0,
-            color: RGBA255 = None,
-            copying: bool = False
-    ) -> None:
-        if not copying:
-            points = self.triangulate(points)
-        super().__init__(points, offset_x, offset_y, color, copying)
-
-
-# Подразумевается не ребро, а ребра грани, то есть четыре ребра.
-# Называется не FaceEdges в угоду краткости.
-class Edge(ShapeObject):
-    default_mode = gl.GL_LINE_STRIP
-
-    def __init__(
-            self,
-            points: PointList,
-            offset_x: float = 0,
-            offset_y: float = 0,
-            color: RGBA255 = None,
-            copying: bool = False
-    ) -> None:
-        if not copying:
-            points = list(points)
-            points.append(points[0])
-        super().__init__(points, offset_x, offset_y, color, copying)
-
-
-# служит только как хранилище
-class Voxel:
-    vertices_3 = (
-        # (a, b, c)
+class Voxel(ProjectionObject):
+    # Координаты вершин
+    vertices = (
+        # (x, y, z)
         (0, 0, 0),
         (0, 1, 0),
         (1, 1, 0),
@@ -73,127 +37,182 @@ class Voxel:
         (1, 1, 1),
         (1, 0, 1)
     )
-    vertices_2 = [Coordinates.convert_3_to_2(*point) for point in vertices_3]
-    # индексы точек куба (CUBE_POINTS) для граней
-    face_indexes = [
-        [0, 4, 7, 3],
-        [4, 5, 6, 7],
-        [3, 7, 6, 2],
-        [0, 4, 5, 1],
-        [0, 1, 2, 3],
-        [1, 5, 6, 2]
-    ]
+    # Индексы точек граней
+    face_vertex_indexes = (
+        # Нижняя
+        (0, 1, 2, 3),
+        # Передняя
+        (3, 7, 4, 0),
+        # Правая
+        (2, 6, 7, 3),
+        # Задняя
+        (1, 5, 6, 2),
+        # Левая
+        (0, 4, 5, 1),
+        # Верхняя
+        (7, 6, 5, 4)
+    )
+    # todo: remove duplicates
+    face_vertex_indexes = (
+        # Нижняя
+        (0, 1, 2, 3),
+        # Передняя
+        (0, 0, 0, 0),
+        # Правая
+        (0, 0, 0, 0),
+        # Задняя
+        (0, 0, 0, 0),
+        # Левая
+        (0, 0, 0, 0),
+        # Верхняя
+        (7, 6, 5, 4)
+    )
+    # Нормали граней
+    face_normals = (
+        (0, 0, -1),
+        (0, -1, 0),
+        (1, 0, 0),
+        (0, 1, 0),
+        (-1, 0, 0),
+        (0, 0, 1)
+    )
+    # Порядок обхода граней
+    face_order = (0, 1, 2, 3, 4, 5)
+    face_order = (5, 4, 3, 2, 1, 0)
+    # Разбиение четырехугольника на треугольники
+    triangles = (
+        0, 1, 2,
+        0, 2, 3
+    )
+
+    @classmethod
+    def generate_geometry(cls, ctx: ArcadeContext, size: Point3 = (1, 1, 1), center: Point3 = (0, 0, 0)) -> Geometry:
+        offset = tuple(component / 2 for component in size)
+
+        positions = array(
+            'f',
+            (center[component_index] + vertex[component_index] - offset[component_index]
+             for vertex in
+             (cls.vertices[cls.face_vertex_indexes[face_index][face_vertex_index]]
+              for face_index in cls.face_order
+              for face_vertex_index in cls.triangles)
+             for component_index in range(3)
+             )
+        )
+
+        normals = array(
+            'f',
+            (cls.face_normals[face_index][component_index]
+             for face_index in cls.face_order
+             for _ in cls.triangles
+             for component_index in range(3))
+        )
+
+        return ctx.geometry(
+            [
+                BufferDescription(ctx.buffer(data = positions), "3f", ["in_position"]),
+                BufferDescription(ctx.buffer(data = normals), "3f", ["in_normal"])
+            ]
+        )
 
 
 class WorldProjection(Object):
     def __init__(self, world: World) -> None:
         super().__init__()
-        self.world = world
-        self.center_x, self.center_y = Coordinates.convert_3_to_2(*self.world.center)
+        # noinspection PyTypeChecker
+        self.window: "ProjectWindow" = get_window()
+        self.ctx = self.window.ctx
+        self.program = self.ctx.load_program(
+            vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
+            fragment_shader = f"{self.settings.SHADERS}/fragment.glsl"
+        )
 
-        # Видимость тайлов
-        self.visibles = np.array([True for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        self.world = world
+
+        self.reference_voxel = Voxel.generate_geometry(self.ctx, center = self.world.center)
         # В каждой ячейке лежит цвет соответствующего тайла
         # (r, g, b, a)
         self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        # Порядок добавления важен, так как от него зависит порядок отрисовки, а значит и то,
-        # что будет нарисовано на переднем, а что на фоне
-        self.colors_to_update: dict[tuple[int, int, int], None] = {point: None for point in self.world.iterate()}
-        self.faces_to_update: dict[tuple[int, int, int], None] = {}
-
-        # В каждой ячейке лежит список граней тайла
-        self.faces = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        self.faces_set = arcade.shape_list.ShapeElementList()
-        self.calculate_faces = False
-        self.edges = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        self.edges_set = arcade.shape_list.ShapeElementList()
-        self.calculate_edges = False
+        self.colors_to_update: set[tuple[int, int, int]] = {point for point in self.world.iterate()}
 
         self.inited = False
 
-    # todo: добавить определение ближайшей грани для определения того, какой слой ближе к камере,
-    #  что нужно для того, чтобы выставлять глубину граням (координату z) для того, чтобы более дальние не перекрывали
-    #  более ближние при отображении
     def init(self) -> Any:
-        # todo: перейти на перезапись вместо создания новых ndarray?
-        # https://stackoverflow.com/questions/31598677/why-list-comprehension-is-much-faster-than-numpy-for-multiplying-arrays
-        faces = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        faces_set = arcade.shape_list.ShapeElementList()
-        edges = np.array([lambda: [None] * 6 for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        edges_set = arcade.shape_list.ShapeElementList()
-
-        # только для видимых граней
-        voxels_vertices: list[list[tuple[float, float]]] = []
-        for point_indexes in Voxel.face_indexes:
-            face_vertices = [Voxel.vertices_2[point_index] for point_index in point_indexes]
-            voxels_vertices.append(face_vertices)
-
         for coordinates in self.colors_to_update:
-            a, b, c = coordinates
-            self.colors[a, b, c] = self.mix_color(a, b, c)
-            self.faces_to_update[coordinates] = None
+            x, y, z = coordinates
+            self.colors[x, y, z] = self.mix_color(x, y, z)
 
-        default_faces: list[Face] = []
-        default_edges: list[Edge] = []
-        for face_index, face_vertices in enumerate(voxels_vertices):
-            if self.calculate_faces:
-                face = Face(face_vertices)
-                default_faces.append(face)
-            if self.calculate_edges:
-                edge = Edge(face_vertices)
-                default_edges.append(edge)
+        positions = array('f', (coordinate for point in self.world.iterate() for coordinate in point))
+        positions_vbo = self.ctx.buffer(data = positions)
+        self.reference_voxel.append_buffer_description(
+            arcade.gl.BufferDescription(
+                positions_vbo,
+                '3f',
+                ['in_instance_position'],
+                instanced = True
+            )
+        )
 
-        for a, b, c in self.faces_to_update:
-            voxel_offset_x, voxel_offset_y = Coordinates.convert_3_to_2(a, b, c)
-            voxel_faces = []
-            voxel_edges = []
+        colors = array('f', (component for point in self.world.iterate() for component in self.colors[*point]))
+        colors_vbo = self.ctx.buffer(data = colors)
+        self.reference_voxel.append_buffer_description(
+            arcade.gl.BufferDescription(
+                colors_vbo,
+                '4f',
+                ['in_instance_color'],
+                instanced = True
+            )
+        )
 
-            for face_index, face_vertices in enumerate(voxels_vertices):
-                is_visible = face_index in self.visible_faces()
-                if self.calculate_faces and is_visible:
-                    face_color = self.colors[a, b, c] if is_visible else ProjectColors.NOT_VISIBLE_FACE_COLOR
-                    face = default_faces[face_index].copy(voxel_offset_x, voxel_offset_y, face_color)
-                    voxel_faces.append(face)
-                if self.calculate_edges:
-                    edges_color = ProjectColors.VISIBLE_EDGE_COLOR if is_visible else ProjectColors.NOT_VISIBLE_EDGE_COLOR
-                    edge = default_edges[face_index].copy(voxel_offset_x, voxel_offset_y, edges_color)
-                    voxel_edges.append(edge)
-
-            for face in voxel_faces:
-                faces_set.append(face)
-            faces[a, b, c] = voxel_faces
-            for edge in voxel_edges:
-                edges_set.append(edge)
-            edges[a, b, c] = voxel_edges
-
-        self.colors_to_update.clear()
-        self.faces_to_update.clear()
-
-        self.faces = faces
-        self.faces_set = faces_set
-        self.edges = edges
-        self.edges_set = edges_set
+        world_shape_min = array('f', (self.world.min_x, self.world.min_y, self.world.min_z))
+        world_shape_min_vbo = self.ctx.buffer(data = world_shape_min)
+        world_shape_max = array('f', (self.world.max_x, self.world.max_y, self.world.max_z))
+        world_shape_max_vbo = self.ctx.buffer(data = world_shape_max)
+        self.reference_voxel.append_buffer_description(
+            arcade.gl.BufferDescription(
+                world_shape_min_vbo,
+                '3f',
+                ['u_world_shape_min'],
+                instanced = True
+            )
+        )
+        self.reference_voxel.append_buffer_description(
+            arcade.gl.BufferDescription(
+                world_shape_max_vbo,
+                '3f',
+                ['u_world_shape_max'],
+                instanced = True
+            )
+        )
 
         self.inited = True
 
-    def mix_color(self, a: int, b: int, c: int) -> tuple[int, int, int, int]:
-        materials = self.world.material[a, b, c]
-        total_amount = sum(materials.values())
-        rgb = (
-            round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
-            index in range(3)
+    def mix_color(self, x: int, y: int, z: int) -> ProjectColors.OpenGLType:
+        # materials = self.world.material[x, y, z]
+        # total_amount = sum(materials.values())
+        # rgb = (
+        #     round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
+        #     index in range(3)
+        # )
+        # alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
+        # color = ProjectColors.to_opengl(*rgb, alpha)
+        # todo: remove this
+        color = (
+            1 - ((x + self.world.width / 2) / self.world.width),
+            1 - ((y + self.world.length / 2) / self.world.length),
+            1 - ((z + self.world.height / 2) / self.world.height),
+            0.3
         )
-        alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
-        # noinspection PyTypeChecker
-        return *rgb, alpha
-
-    # Возвращает список видимых граней
-    def visible_faces(self) -> list[int]:
-        return [0, 1, 2]
-
-    # Возвращает список видимых граней
-    def not_visible_faces(self) -> list[int]:
-        return [3, 4, 5]
+        # color = (
+        #     ((x + self.world.width / 2) / self.world.width),
+        #     ((y + self.world.length / 2) / self.world.length),
+        #     ((z + self.world.height / 2) / self.world.height),
+        #     0.3
+        # )
+        # color = (0, 0.5, 0, 0.1)
+        # if (x, y, z) == self.world.center:
+        #     color = (0.5, 0, 0, 0.5)
+        return color
 
     def reset(self) -> None:
         self.inited = False
@@ -201,20 +220,27 @@ class WorldProjection(Object):
     def start(self) -> None:
         pass
 
-    def on_draw(self, draw_faces: bool, draw_edges: bool) -> None:
-        if self.calculate_faces != draw_faces:
-            self.calculate_faces = draw_faces
-            self.reset()
-        if self.calculate_edges != draw_edges:
-            self.calculate_edges = draw_edges
-            self.reset()
-
+    def draw(self, draw_faces: bool, draw_edges: bool) -> None:
         if not self.inited:
             self.init()
-        if draw_faces:
-            self.faces_set.draw()
-        if draw_edges:
-            self.edges_set.draw()
+
+        # todo: remove depth_mask and cull_face changes
+        cull_face = self.ctx.cull_face
+        depth_mask = self.ctx.screen.depth_mask
+        value = c_int()
+        pyglet.gl.glGetIntegerv(pyglet.gl.GL_DEPTH_FUNC, value)
+        # self.ctx.screen.depth_mask = False
+
+        projection_matrix = self.window.projector.generate_projection_matrix()
+        view_matrix = self.window.projector.generate_view_matrix()
+        # todo: Переименовать?
+        #  mvp = model, projection, view
+        self.program["u_mvp"] = projection_matrix @ view_matrix
+
+        self.reference_voxel.render(self.program, instances = self.world.material.size)
+
+        self.ctx.cull_face = cull_face
+        self.ctx.screen.depth_mask = depth_mask
 
 
 class World(Object):
@@ -227,15 +253,15 @@ class World(Object):
         if self.width == 1:
             self.min_x = 0
         else:
-            self.min_x = -self.width // 2
+            self.min_x = -(self.width // 2)
         if self.length == 1:
             self.min_y = 0
         else:
-            self.min_y = -self.length // 2
+            self.min_y = -(self.length // 2)
         if self.height == 1:
             self.min_z = 0
         else:
-            self.min_z = -self.height // 2
+            self.min_z = -(self.height // 2)
 
         self.max_x = self.min_x + self.width - 1
         self.max_y = self.min_y + self.length - 1

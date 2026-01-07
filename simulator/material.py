@@ -1,3 +1,6 @@
+from core.service.colors import ProjectColors
+
+
 Materials = dict[type["Material"], int]
 
 
@@ -10,10 +13,10 @@ class Material:
 
 class Vacuum(Material):
     mass = 0
-    color = (0, 0, 0, 3)
+    color = ProjectColors.MATERIAL_VACUUM
 
 
 # todo: replace it with generic
 class Water(Material):
     mass = 1
-    color = (174, 216, 242, 50)
+    color = ProjectColors.MATERIAL_WATER

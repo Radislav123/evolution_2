@@ -14,8 +14,7 @@ from core.service.object import ProjectMixin
 from simulator.world import World
 
 
-class Window(arcade.Window, ProjectMixin):
-
+class ProjectWindow(arcade.Window, ProjectMixin):
     def __init__(self, width: int, height: int) -> None:
         super().__init__(width, height, center_window = True)
 
@@ -34,7 +33,7 @@ class Window(arcade.Window, ProjectMixin):
         self.pressed_keys = set()
         self.mouse_dragged = False
 
-        arcade.set_background_color(ProjectColors.WHITE)
+        arcade.set_background_color(ProjectColors.TRANSPARENT_WHITE)
 
     def count_statistics(self) -> None:
         self.timings["tick"].append(self.timestamp - self.previous_timestamp)
@@ -73,18 +72,17 @@ class Window(arcade.Window, ProjectMixin):
         self.ui_manager.add(common_layout)
 
     def start(self) -> None:
-        self.projector.use()
+        ctx_flags_enable = [
+            self.ctx.DEPTH_TEST,
+            self.ctx.BLEND,
+            self.ctx.CULL_FACE
+        ]
+        self.ctx.enable(*ctx_flags_enable)
+        ctx_flags_disable = []
+        self.ctx.disable(*ctx_flags_disable)
+        self.ctx.blend_func = self.ctx.SRC_ALPHA, self.ctx.ONE_MINUS_SRC_ALPHA
+
         self.ui_manager.enable()
-        size = (
-            (1, 1, 1),
-            (5, 7, 9),
-            (1, 2, 3),
-            (2, 4, 6),
-            (10, 10, 10),
-            (3, 3, 3),
-            (15, 15, 15),
-            (25, 25, 25)
-        )[6]
         self.world = World(self.settings.WORLD_SHAPE)
         self.world.start()
 
@@ -100,9 +98,10 @@ class Window(arcade.Window, ProjectMixin):
     def on_draw(self) -> EVENT_HANDLE_STATE:
         self.clear()
 
-        draw_faces = True
-        draw_edges = True
-        self.world.projection.on_draw(draw_faces, draw_edges)
+        with self.projector.activate():
+            draw_faces = True
+            draw_edges = True
+            self.world.projection.draw(draw_faces, draw_edges)
 
         self.ui_manager.draw()
 
@@ -145,6 +144,6 @@ class Window(arcade.Window, ProjectMixin):
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> EVENT_HANDLE_STATE:
         scroll = scroll_x + scroll_y
         if len(self.pressed_keys) == 0:
-            self.projector.change_zoom(x, y, scroll)
+            self.projector.change_zoom(scroll)
         elif Keys.LCTRL.value in self.pressed_keys:
             self.projector.dolly(scroll)
