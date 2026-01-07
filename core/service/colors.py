@@ -7,16 +7,18 @@ class ProjectColors:
 
     PLACEHOLDER = (239, 64, 245, 255)
 
-    MATERIAL_VACUUM = (0, 0, 0, 3)
-    MATERIAL_WATER = (174, 216, 242, 50)
+    VOXEL_EDGE = (0, 0, 0, 1)
 
-    VISIBLE_EDGE_COLOR = (0, 0, 0, 2)
-    NOT_VISIBLE_EDGE_COLOR = (0, 0, 0, 1)
+    BACKGROUND_DARK = (30, 35, 45, 255)
+    BACKGROUND_LIGHT = (230, 235, 245, 255)
 
     WHITE = (255, 255, 255, 255)
     BLACK = (0, 0, 0, 255)
     TRANSPARENT_WHITE = (255, 255, 255, 0)
     TRANSPARENT_BLACK = (0, 0, 0, 0)
+
+    MATERIAL_VACUUM = (0, 0, 0, 3)
+    MATERIAL_WATER = (174, 216, 242, 150)
 
     @staticmethod
     def to_opengl(r: int, g: int, b: int, a: int) -> OpenGLType:

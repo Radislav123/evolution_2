@@ -4,13 +4,9 @@ import random
 from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ctypes import c_int
 from typing import Any, Generator, TYPE_CHECKING
 
-import arcade
-import arcade.gl.geometry
 import numpy as np
-import pyglet
 from arcade import ArcadeContext, get_window
 from arcade.gl import BufferDescription, Geometry
 from arcade.types import Point3
@@ -52,21 +48,6 @@ class Voxel(ProjectionObject):
         # Верхняя
         (7, 6, 5, 4)
     )
-    # todo: remove duplicates
-    face_vertex_indexes = (
-        # Нижняя
-        (0, 1, 2, 3),
-        # Передняя
-        (0, 0, 0, 0),
-        # Правая
-        (0, 0, 0, 0),
-        # Задняя
-        (0, 0, 0, 0),
-        # Левая
-        (0, 0, 0, 0),
-        # Верхняя
-        (7, 6, 5, 4)
-    )
     # Нормали граней
     face_normals = (
         (0, 0, -1),
@@ -78,7 +59,6 @@ class Voxel(ProjectionObject):
     )
     # Порядок обхода граней
     face_order = (0, 1, 2, 3, 4, 5)
-    face_order = (5, 4, 3, 2, 1, 0)
     # Разбиение четырехугольника на треугольники
     triangles = (
         0, 1, 2,
@@ -145,7 +125,7 @@ class WorldProjection(Object):
         positions = array('f', (coordinate for point in self.world.iterate() for coordinate in point))
         positions_vbo = self.ctx.buffer(data = positions)
         self.reference_voxel.append_buffer_description(
-            arcade.gl.BufferDescription(
+            BufferDescription(
                 positions_vbo,
                 '3f',
                 ['in_instance_position'],
@@ -156,7 +136,7 @@ class WorldProjection(Object):
         colors = array('f', (component for point in self.world.iterate() for component in self.colors[*point]))
         colors_vbo = self.ctx.buffer(data = colors)
         self.reference_voxel.append_buffer_description(
-            arcade.gl.BufferDescription(
+            BufferDescription(
                 colors_vbo,
                 '4f',
                 ['in_instance_color'],
@@ -164,54 +144,40 @@ class WorldProjection(Object):
             )
         )
 
-        world_shape_min = array('f', (self.world.min_x, self.world.min_y, self.world.min_z))
-        world_shape_min_vbo = self.ctx.buffer(data = world_shape_min)
-        world_shape_max = array('f', (self.world.max_x, self.world.max_y, self.world.max_z))
-        world_shape_max_vbo = self.ctx.buffer(data = world_shape_max)
-        self.reference_voxel.append_buffer_description(
-            arcade.gl.BufferDescription(
-                world_shape_min_vbo,
-                '3f',
-                ['u_world_shape_min'],
-                instanced = True
-            )
-        )
-        self.reference_voxel.append_buffer_description(
-            arcade.gl.BufferDescription(
-                world_shape_max_vbo,
-                '3f',
-                ['u_world_shape_max'],
-                instanced = True
-            )
-        )
+        self.program["u_world_shape_min"] = (self.world.min_x, self.world.min_y, self.world.min_z)
+        self.program["u_world_shape_max"] = (self.world.max_x, self.world.max_y, self.world.max_z)
 
         self.inited = True
 
     def mix_color(self, x: int, y: int, z: int) -> ProjectColors.OpenGLType:
-        # materials = self.world.material[x, y, z]
-        # total_amount = sum(materials.values())
-        # rgb = (
-        #     round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
-        #     index in range(3)
-        # )
-        # alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
-        # color = ProjectColors.to_opengl(*rgb, alpha)
-        # todo: remove this
-        color = (
-            1 - ((x + self.world.width / 2) / self.world.width),
-            1 - ((y + self.world.length / 2) / self.world.length),
-            1 - ((z + self.world.height / 2) / self.world.height),
-            0.3
+        materials = self.world.material[x, y, z]
+        total_amount = sum(materials.values())
+        rgb = (
+            round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
+            index in range(3)
         )
+        alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
+        color = ProjectColors.to_opengl(*rgb, alpha)
+        # todo: remove this
+        # color = (
+        #     1 - ((x + self.world.width / 2) / self.world.width),
+        #     1 - ((y + self.world.length / 2) / self.world.length),
+        #     1 - ((z + self.world.height / 2) / self.world.height),
+        #     0.3
+        # )
         # color = (
         #     ((x + self.world.width / 2) / self.world.width),
         #     ((y + self.world.length / 2) / self.world.length),
         #     ((z + self.world.height / 2) / self.world.height),
         #     0.3
         # )
-        # color = (0, 0.5, 0, 0.1)
-        # if (x, y, z) == self.world.center:
-        #     color = (0.5, 0, 0, 0.5)
+        temp_1 = 0.8
+        if (x, y, z) == (0, 0, -1):
+            color = (0.5, 0, 0, temp_1)
+        if (x, y, z) == (0, 0, 0):
+            color = (0, 0.5, 0, temp_1)
+        if (x, y, z) == (0, 0, 1):
+            color = (0, 0, 0.5, temp_1)
         return color
 
     def reset(self) -> None:
@@ -220,22 +186,20 @@ class WorldProjection(Object):
     def start(self) -> None:
         pass
 
+    # todo: Для ускорения можно перейти на indirect render?
     def draw(self, draw_faces: bool, draw_edges: bool) -> None:
         if not self.inited:
             self.init()
 
-        # todo: remove depth_mask and cull_face changes
+        # todo: remove depth_mask and cull_face changes?
         cull_face = self.ctx.cull_face
         depth_mask = self.ctx.screen.depth_mask
-        value = c_int()
-        pyglet.gl.glGetIntegerv(pyglet.gl.GL_DEPTH_FUNC, value)
         # self.ctx.screen.depth_mask = False
 
         projection_matrix = self.window.projector.generate_projection_matrix()
         view_matrix = self.window.projector.generate_view_matrix()
-        # todo: Переименовать?
-        #  mvp = model, projection, view
-        self.program["u_mvp"] = projection_matrix @ view_matrix
+        self.program["u_vp"] = projection_matrix @ view_matrix
+        self.program["u_view_position"] = self.window.projector.view.position
 
         self.reference_voxel.render(self.program, instances = self.world.material.size)
 
@@ -317,10 +281,10 @@ class World(Object):
     def generate_materials(self) -> None:
         world_sphere_radius = max((self.width + self.length + self.height) / 2 / 3, 1)
         for x, y, z in self.iterate():
-            point_radius = (x ** 2 + y ** 2 + z ** 2) ** (1 / 2)
+            point_radius = max((x ** 2 + y ** 2 + z ** 2) ** (1 / 2), 1)
             if point_radius <= world_sphere_radius:
                 self.material[x, y, z][Water] = round(
-                    self.max_material_amount * point_radius / world_sphere_radius
+                    self.max_material_amount * (world_sphere_radius - point_radius) / world_sphere_radius
                 )
 
         for x, y, z in self.iterate():

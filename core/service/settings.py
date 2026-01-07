@@ -16,14 +16,14 @@ class Settings(Singleton):
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
 
-        self.WORLD_SHAPE = (5, 5, 2)
+        self.WORLD_SHAPE = (5, 5, 5)
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
         self.CAMERA_MIN_ZOOM = 0.4
         self.CAMERA_MAX_ZOOM = 100
         self.CAMERA_ZOOM = 1
-        self.CAMERA_ROTATION_RADIUS = self.WORLD_SHAPE[2] * 10
+        self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
 
         self.BUTTON_WIDTH = 230
