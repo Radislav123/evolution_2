@@ -4,6 +4,8 @@ uniform ivec3 u_world_shape_min;
 uniform ivec3 u_world_shape_max;
 uniform vec3 u_view_position;
 uniform int u_render_transparent;
+uniform float u_near;
+uniform float u_far;
 
 in vec3 v_normal;
 in vec3 v_vertex_position;
