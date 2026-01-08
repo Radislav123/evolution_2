@@ -8,7 +8,7 @@ from arcade.gui import UIAnchorLayout, UIBoxLayout, UIManager
 from pyglet.event import EVENT_HANDLE_STATE
 
 from core.gui.button import Button, DynamicTextButton
-from core.gui.projector import Projector
+from core.gui.projector import ProjectProjector
 from core.service.colors import ProjectColors
 from core.service.object import ProjectMixin
 from simulator.world import World
@@ -27,7 +27,8 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         self.world: World | None = None
 
-        self.projector = Projector()
+        self.projector = ProjectProjector(self)
+        self.projector.init()
         self.ui_manager = UIManager(self)
 
         self.pressed_keys = set()
@@ -54,7 +55,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         common_layout.add(upper_right_corner_layout, anchor_x = "right", anchor_y = "top")
 
         centralize_camera_button = Button(text = "Поместить камеру по центру")
-        centralize_camera_button.on_click = self.projector.centralize
+        centralize_camera_button.on_click = self.projector.view.centralize
         upper_right_corner_layout.add(centralize_camera_button)
 
         world_age_button = DynamicTextButton(
@@ -87,7 +88,6 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.world.start()
 
         self.world.projection.start()
-        self.projector.start()
 
         self.start_interface()
 
@@ -134,16 +134,16 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         # Сравнивается ==, чтобы исключить действия при нажатии сразу нескольких кнопок
         if len(self.pressed_keys) == 0:
             if buttons == MouseButtons.LEFT.value:
-                self.projector.pan(dx, dy)
+                self.projector.view.pan(dx, dy)
         elif Keys.LCTRL.value in self.pressed_keys:
             if buttons == MouseButtons.LEFT.value:
-                self.projector.rotate(dx, dy)
+                self.projector.view.rotate(dx, dy)
 
         self.mouse_dragged = True
 
     def on_mouse_scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> EVENT_HANDLE_STATE:
         scroll = scroll_x + scroll_y
         if len(self.pressed_keys) == 0:
-            self.projector.change_zoom(scroll)
+            self.projector.view.change_zoom(scroll)
         elif Keys.LCTRL.value in self.pressed_keys:
-            self.projector.dolly(scroll)
+            self.projector.view.dolly(scroll)
