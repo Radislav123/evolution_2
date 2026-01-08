@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, TYPE_CHECKING
 
 import numpy as np
-from arcade import ArcadeContext, get_window
+from arcade import ArcadeContext
 from arcade.gl import BufferDescription, Geometry
 from arcade.types import Point3
 
@@ -20,7 +20,9 @@ from simulator.material import Materials, Vacuum, Water
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
 
-ChunkIterator = np.ndarray[np.ndarray[np.int8 | np.uint8], ...]
+# int32 - для итератора по координатам вокселя
+# uint8 - для итератора по цветам вокселей
+ChunkIterator = np.ndarray[np.ndarray[np.int32 | np.uint8], ...]
 
 
 class Voxel(ProjectionObject, Singleton):
@@ -100,10 +102,9 @@ class Voxel(ProjectionObject, Singleton):
 
 
 class WorldProjection(Object):
-    def __init__(self, world: World) -> None:
+    def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
-        # noinspection PyTypeChecker
-        self.window: "ProjectWindow" = get_window()
+        self.window = window
         self.ctx = self.window.ctx
         self.program = self.ctx.load_program(
             vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
@@ -121,8 +122,8 @@ class WorldProjection(Object):
         self.program["u_world_min"] = self.world.min
         self.program["u_world_max"] = self.world.max
 
-        self.positions_vbo = self.ctx.buffer(reserve = self.world.cell_count * 4 * 4, usage = "stream")
-        self.colors_vbo = self.ctx.buffer(reserve = self.world.cell_count * 4 * 1, usage = "stream")
+        self.positions_vbo = self.ctx.buffer(reserve = self.voxel_count * 4 * 4, usage = "stream")
+        self.colors_vbo = self.ctx.buffer(reserve = self.voxel_count * 4 * 1, usage = "stream")
 
         self.reference_voxel.append_buffer_description(
             BufferDescription(
@@ -142,9 +143,8 @@ class WorldProjection(Object):
             )
         )
 
-        # В каждой ячейке лежит цвет соответствующего тайла
         # (r, g, b, a)
-        self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
+        self.colors: ChunkIterator = np.array([None for _ in range(self.voxel_count)]).reshape(self.world.shape)
         self.colors_to_update: ChunkIterator = tuple((point[0], point[1], point[2]) for point in self.iterator)
 
         self.inited = False
@@ -210,7 +210,7 @@ class WorldProjection(Object):
         view_matrix = self.window.projector.generate_view_matrix()
         self.program["u_vp"] = projection_matrix @ view_matrix
 
-        self.reference_voxel.render(self.program, instances = self.world.cell_count)
+        self.reference_voxel.render(self.program, instances = self.voxel_count)
 
     # todo: добавить кэш или предрасчет
     def update_iterator(self) -> None:
@@ -236,13 +236,13 @@ class WorldProjection(Object):
             grid = np.mgrid[ranges[0], ranges[1], ranges[2]]
             iterator = grid.transpose(major + 1, middle + 1, minor + 1, 0).reshape(-1, 3)
             self.iterator = np.zeros((iterator.shape[0], 4), dtype = np.int32)
-            self.iterator[:, :3] = iterator.astype(np.int32, order = 'K')
+            self.iterator[:, :3] = iterator
 
             self.inited = False
 
 
 class World(Object):
-    def __init__(self, shape: tuple[int, int, int], seed: int = None) -> None:
+    def __init__(self, shape: tuple[int, int, int], window: "ProjectWindow", seed: int = None) -> None:
         super().__init__()
         self.shape = shape
         self.width, self.length, self.height = self.shape
@@ -294,7 +294,7 @@ class World(Object):
         self.thread_executor = ThreadPoolExecutor(os.cpu_count())
         self.prepare()
 
-        self.projection = WorldProjection(self)
+        self.projection = WorldProjection(self, window)
 
     def start(self) -> None:
         pass

@@ -84,7 +84,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.ctx.blend_func = self.ctx.SRC_ALPHA, self.ctx.ONE_MINUS_SRC_ALPHA
 
         self.ui_manager.enable()
-        self.world = World(self.settings.WORLD_SHAPE)
+        self.world = World(self.settings.WORLD_SHAPE, self, self.settings.SEED)
         self.world.start()
 
         self.world.projection.start()

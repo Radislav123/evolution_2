@@ -16,7 +16,8 @@ class Settings(Singleton):
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
 
-        self.WORLD_SHAPE = (5, 5, 5)
+        self.WORLD_SHAPE = (25, 25, 25)
+        self.SEED = None
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
