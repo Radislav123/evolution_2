@@ -26,7 +26,6 @@ class ProjectCameraData(CameraData, ProjectMixin):
 
         super().__init__(position = self.centralized_position, zoom = self.settings.CAMERA_ZOOM)
         self.axis_sort_order: tuple[int, int, int] | None = None
-        self.forward_normal: tuple[int, int, int] | None = None
         self.sort_direction: tuple[int, int, int] | None = None
 
     def centralize(self, _: UIOnClickEvent) -> None:
@@ -108,12 +107,6 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.forward, self.up = arcade.camera.grips.look_at(self, pivot, up)
 
         self.axis_sort_order = tuple(sorted(range(3), key = lambda axis_index: abs(self.forward[axis_index])))
-
-        max_index = max(range(3), key = lambda component: abs(self.forward[component]))
-        forward_normal = [0] * 3
-        forward_normal[0] = int(math.copysign(1, self.forward[max_index]))
-        self.forward_normal = tuple(forward_normal)
-
         self.sort_direction = tuple(int(math.copysign(1, self.forward[index])) for index in self.axis_sort_order)
 
 

@@ -20,7 +20,7 @@ from simulator.material import Materials, Vacuum, Water
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
 
-ChunkIterator = tuple[tuple[int, int, int], ...]
+ChunkIterator = np.ndarray[np.ndarray[np.int8 | np.uint8], ...]
 
 
 class Voxel(ProjectionObject, Singleton):
@@ -118,37 +118,53 @@ class WorldProjection(Object):
         self.update_iterator()
         self.reference_voxel = Voxel.generate_geometry(self.ctx, center = self.world.center)
 
-        self.positions_vbo = self.ctx.buffer(reserve = self.world.material.size * 3 * 4)
-        self.colors_vbo = self.ctx.buffer(reserve = self.world.material.size * 4 * 4)
+        self.program["u_world_min"] = self.world.min
+        self.program["u_world_max"] = self.world.max
+
+        self.positions_vbo = self.ctx.buffer(reserve = self.world.cell_count * 4 * 4, usage = "stream")
+        self.colors_vbo = self.ctx.buffer(reserve = self.world.cell_count * 4 * 1, usage = "stream")
 
         self.reference_voxel.append_buffer_description(
-            BufferDescription(self.positions_vbo, "3f", ["in_instance_position"], instanced = True)
+            BufferDescription(
+                self.positions_vbo,
+                "4i",
+                ["in_instance_position"],
+                instanced = True
+            )
         )
         self.reference_voxel.append_buffer_description(
-            BufferDescription(self.colors_vbo, "4f", ["in_instance_color"], instanced = True)
+            BufferDescription(
+                self.colors_vbo,
+                "4f1",
+                ["in_instance_color"],
+                normalized = ["in_instance_color"],
+                instanced = True
+            )
         )
 
         # В каждой ячейке лежит цвет соответствующего тайла
         # (r, g, b, a)
         self.colors = np.array([None for _ in range(self.world.material.size)]).reshape(self.world.shape)
-        self.colors_to_update: set[tuple[int, int, int]] = {point for point in self.iterator}
+        self.colors_to_update: ChunkIterator = tuple((point[0], point[1], point[2]) for point in self.iterator)
 
         self.inited = False
 
     def update_buffers(self) -> Any:
-        for coordinates in self.colors_to_update:
-            x, y, z = coordinates
+        for x, y, z in self.colors_to_update:
             self.colors[x, y, z] = self.mix_color(x, y, z)
 
-        positions = array('f', (component for point in self.iterator for component in point))
-        colors = array('f', (component for point in self.iterator for component in self.colors[*point]))
+        # todo: передавать напрямую через memoryview?
+        colors = array(
+            'B',
+            (component for point in self.iterator for component in self.colors[point[0], point[1], point[2]])
+        )
 
-        self.positions_vbo.write(positions)
+        self.positions_vbo.write(memoryview(self.iterator))
         self.colors_vbo.write(colors)
 
         self.inited = True
 
-    def mix_color(self, x: int, y: int, z: int) -> ProjectColors.OpenGLType:
+    def mix_color(self, x: int, y: int, z: int) -> ProjectColors.ArcadeType:
         materials = self.world.material[x, y, z]
         total_amount = sum(materials.values())
         rgb = (
@@ -156,7 +172,6 @@ class WorldProjection(Object):
             index in range(3)
         )
         alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
-        color = ProjectColors.to_opengl(*rgb, alpha)
         # todo: remove this
         # color = (
         #     1 - ((x + self.world.width / 2) / self.world.width),
@@ -165,18 +180,18 @@ class WorldProjection(Object):
         #     0.3
         # )
         color = (
-            ((x + self.world.width / 2) / self.world.width),
-            ((y + self.world.length / 2) / self.world.length),
-            ((z + self.world.height / 2) / self.world.height),
-            0.3
+            int((x + self.world.width / 2) / self.world.width * 255),
+            int((y + self.world.length / 2) / self.world.length * 255),
+            int((z + self.world.height / 2) / self.world.height * 255),
+            int(0.3 * 255)
         )
         temp_1 = 0.8
-        if (x, y, z) == (0, 0, -1):
-            color = (0.5, 0, 0, temp_1)
-        if (x, y, z) == (0, 0, 0):
-            color = (0, 0.5, 0, temp_1)
-        if (x, y, z) == (0, 0, 1):
-            color = (0, 0, 0.5, temp_1)
+        # if (x, y, z) == (0, 0, -1):
+        #     color = (0.5, 0, 0, temp_1)
+        # if (x, y, z) == (0, 0, 0):
+        #     color = (0, 0.5, 0, temp_1)
+        # if (x, y, z) == (0, 0, 1):
+        #     color = (0, 0, 0.5, temp_1)
         return color
 
     def reset(self) -> None:
@@ -191,53 +206,38 @@ class WorldProjection(Object):
         if not self.inited:
             self.update_buffers()
 
-        # todo: remove depth_mask and cull_face changes?
-        cull_face = self.ctx.cull_face
-        depth_mask = self.ctx.screen.depth_mask
-        # todo: Временное решение для отрисовки прозрачности
-        # self.ctx.screen.depth_mask = False
-
         projection_matrix = self.window.projector.generate_projection_matrix()
         view_matrix = self.window.projector.generate_view_matrix()
         self.program["u_vp"] = projection_matrix @ view_matrix
-        self.program["u_view_position"] = self.window.projector.view.position
 
-        self.reference_voxel.render(self.program, instances = self.world.material.size)
+        self.reference_voxel.render(self.program, instances = self.world.cell_count)
 
-        self.ctx.cull_face = cull_face
-        self.ctx.screen.depth_mask = depth_mask
-
+    # todo: добавить кэш или предрасчет
     def update_iterator(self) -> None:
+        forward = self.window.projector.view.forward
         axis_sort_order = self.window.projector.view.axis_sort_order
         sort_direction = self.window.projector.view.sort_direction
+
+        # todo: Тормозит на моменте обновления буфера, а не на обновлении итератора
         if self.axis_sort_order != axis_sort_order or self.sort_direction != sort_direction:
             self.axis_sort_order = axis_sort_order
             self.sort_direction = sort_direction
 
-            axis_generators = (
-                tuple(range(self.world.max_x, self.world.min_x - 1, -1)),
-                tuple(range(self.world.max_y, self.world.min_y - 1, -1)),
-                tuple(range(self.world.max_z, self.world.min_z - 1, -1)),
-                None,
-                None,
-                None,
-                tuple(range(self.world.min_z, self.world.max_z + 1)),
-                tuple(range(self.world.min_y, self.world.max_y + 1)),
-                tuple(range(self.world.min_x, self.world.max_x + 1)),
-            )
-            self.iterator = tuple(
-                tuple((a, b, c)[index] for index in axis_sort_order)
-                # (a, b, c)
-                for c in axis_generators[axis_sort_order[2] * sort_direction[2]]
-                for b in axis_generators[axis_sort_order[1] * sort_direction[1]]
-                for a in axis_generators[axis_sort_order[0] * sort_direction[0]]
-            )
+            ranges = {}
+            major, middle, minor = axis_sort_order[2], axis_sort_order[1], axis_sort_order[0]
+            for i in range(3):
+                if forward[i] < 0:
+                    # Идем от начала к концу
+                    ranges[i] = range(self.world.min[i], self.world.max[i] + 1, 1)
+                else:
+                    # Идем от конца к началу
+                    ranges[i] = range(self.world.max[i], self.world.min[i] - 1, -1)
 
-            print("--------------------")
-            print(tuple(round(component, 2) for component in self.window.projector.view.forward))
-            print(axis_sort_order)
-            print(sort_direction)
-            print(self.iterator)
+            grid = np.mgrid[ranges[0], ranges[1], ranges[2]]
+            iterator = grid.transpose(major + 1, middle + 1, minor + 1, 0).reshape(-1, 3)
+            self.iterator = np.zeros((iterator.shape[0], 4), dtype = np.int32)
+            self.iterator[:, :3] = iterator.astype(np.int32, order = 'K')
+
             self.inited = False
 
 

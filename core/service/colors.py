@@ -19,7 +19,3 @@ class ProjectColors:
 
     MATERIAL_VACUUM = (0, 0, 0, 3)
     MATERIAL_WATER = (174, 216, 242, 150)
-
-    @staticmethod
-    def to_opengl(r: int, g: int, b: int, a: int) -> OpenGLType:
-        return r / 255, g / 255, b / 255, a / 255

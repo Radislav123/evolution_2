@@ -34,7 +34,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.pressed_keys = set()
         self.mouse_dragged = False
 
-        arcade.set_background_color(ProjectColors.TRANSPARENT_WHITE)
+        arcade.set_background_color(ProjectColors.BACKGROUND_LIGHT)
 
     def count_statistics(self) -> None:
         self.timings["tick"].append(self.timestamp - self.previous_timestamp)
