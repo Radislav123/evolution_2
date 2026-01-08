@@ -18,4 +18,4 @@ class ProjectColors:
     TRANSPARENT_BLACK = (0, 0, 0, 0)
 
     MATERIAL_VACUUM = (0, 0, 0, 3)
-    MATERIAL_WATER = (174, 216, 242, 150)
+    MATERIAL_WATER = (200, 230, 255, 100)

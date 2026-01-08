@@ -20,9 +20,8 @@ from simulator.material import Materials, Vacuum, Water
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
 
-# int32 - для итератора по координатам вокселя
-# uint8 - для итератора по цветам вокселей
-ChunkIterator = np.ndarray[np.ndarray[np.int32 | np.uint8], ...]
+VoxelIterator = np.ndarray[np.ndarray[np.int32], ...]
+ColorIterator = np.ndarray[ProjectColors.ArcadeType, ...]
 
 
 class Voxel(ProjectionObject, Singleton):
@@ -116,7 +115,7 @@ class WorldProjection(Object):
         self.voxel_count = self.world.cell_count
         self.axis_sort_order: tuple[int, int, int] | None = None
         self.sort_direction: tuple[int, int, int] | None = None
-        self.iterator: ChunkIterator | None = None
+        self.iterator: VoxelIterator | None = None
         self.update_iterator()
         self.reference_voxel = Voxel.generate_geometry(self.ctx, center = self.world.center)
 
@@ -146,27 +145,27 @@ class WorldProjection(Object):
 
         # (r, g, b, a)
         # noinspection PyTypeChecker
-        self.colors: ChunkIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
-        self.colors_to_update: ChunkIterator = self.iterator.copy()
+        self.colors: ColorIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
+        self.colors_to_update: set[tuple[int, int, int]] = {(x, y, z) for x, y, z, _ in self.iterator}
 
         self.inited = False
 
     def update_buffers(self) -> Any:
-        for x, y, z, _ in self.colors_to_update:
-            self.colors[x, y, z] = self.mix_color(x, y, z)
+        for x, y, z in self.colors_to_update:
+            self.mix_color(x, y, z)
+        self.colors_to_update.clear()
 
-        # todo: передавать напрямую через memoryview?
-        colors = array(
-            'B',
-            (component for point in self.iterator for component in self.colors[point[0], point[1], point[2]])
-        )
+        positions = np.ascontiguousarray(self.iterator)
+        self.positions_vbo.write(positions)
 
-        self.positions_vbo.write(memoryview(self.iterator))
+        ordered_colors = self.colors[self.iterator[:, 0], self.iterator[:, 1], self.iterator[:, 2]]
+        colors = np.ascontiguousarray(ordered_colors)
         self.colors_vbo.write(colors)
 
         self.inited = True
 
-    def mix_color(self, x: int, y: int, z: int) -> ProjectColors.ArcadeType:
+    # todo: Возможно, для ускорения расчетов, обновлять цвет только при его ЗНАЧИТЕЛЬНОМ изменении?
+    def mix_color(self, x: int, y: int, z: int) -> None:
         color_test = self.settings.COLOR_TEST
         if color_test:
             rgb = (
@@ -183,8 +182,7 @@ class WorldProjection(Object):
                 index in range(3)
             )
             alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
-        # noinspection PyTypeChecker
-        return *rgb, alpha
+        self.colors[x, y, z] = (*rgb, alpha)
 
     def reset(self) -> None:
         self.inited = False
@@ -263,7 +261,7 @@ class World(Object):
         self.center_y = 0
         self.center_z = 0
         self.center = (self.center_x, self.center_y, self.center_z)
-        self.iterator: ChunkIterator = tuple(
+        self.iterator: VoxelIterator = tuple(
             (x, y, z)
             for z in range(self.min_z, self.max_z + 1)
             for y in range(self.min_y, self.max_y + 1)
