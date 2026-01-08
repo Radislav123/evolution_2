@@ -35,3 +35,5 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
         self.SPRITE_SIZE = 100
+
+        self.COLOR_TEST = True

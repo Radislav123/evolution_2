@@ -101,6 +101,7 @@ class Voxel(ProjectionObject, Singleton):
         )
 
 
+# todo: Сделать двойную буферизацию
 class WorldProjection(Object):
     def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
@@ -144,13 +145,14 @@ class WorldProjection(Object):
         )
 
         # (r, g, b, a)
-        self.colors: ChunkIterator = np.array([None for _ in range(self.voxel_count)]).reshape(self.world.shape)
-        self.colors_to_update: ChunkIterator = tuple((point[0], point[1], point[2]) for point in self.iterator)
+        # noinspection PyTypeChecker
+        self.colors: ChunkIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
+        self.colors_to_update: ChunkIterator = self.iterator.copy()
 
         self.inited = False
 
     def update_buffers(self) -> Any:
-        for x, y, z in self.colors_to_update:
+        for x, y, z, _ in self.colors_to_update:
             self.colors[x, y, z] = self.mix_color(x, y, z)
 
         # todo: передавать напрямую через memoryview?
@@ -165,34 +167,24 @@ class WorldProjection(Object):
         self.inited = True
 
     def mix_color(self, x: int, y: int, z: int) -> ProjectColors.ArcadeType:
-        materials = self.world.material[x, y, z]
-        total_amount = sum(materials.values())
-        rgb = (
-            round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
-            index in range(3)
-        )
-        alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
-        # todo: remove this
-        # color = (
-        #     1 - ((x + self.world.width / 2) / self.world.width),
-        #     1 - ((y + self.world.length / 2) / self.world.length),
-        #     1 - ((z + self.world.height / 2) / self.world.height),
-        #     0.3
-        # )
-        color = (
-            int((x + self.world.width / 2) / self.world.width * 255),
-            int((y + self.world.length / 2) / self.world.length * 255),
-            int((z + self.world.height / 2) / self.world.height * 255),
-            int(0.3 * 255)
-        )
-        temp_1 = 0.8
-        # if (x, y, z) == (0, 0, -1):
-        #     color = (0.5, 0, 0, temp_1)
-        # if (x, y, z) == (0, 0, 0):
-        #     color = (0, 0.5, 0, temp_1)
-        # if (x, y, z) == (0, 0, 1):
-        #     color = (0, 0, 0.5, temp_1)
-        return color
+        color_test = self.settings.COLOR_TEST
+        if color_test:
+            rgb = (
+                int((x + self.world.width / 2) / self.world.width * 255),
+                int((y + self.world.length / 2) / self.world.length * 255),
+                int((z + self.world.height / 2) / self.world.height * 255)
+            )
+            alpha = int(255 / max(self.world.shape) ** (1 / 2))
+        else:
+            materials = self.world.material[x, y, z]
+            total_amount = sum(materials.values())
+            rgb = (
+                round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
+                index in range(3)
+            )
+            alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
+        # noinspection PyTypeChecker
+        return *rgb, alpha
 
     def reset(self) -> None:
         self.inited = False
