@@ -69,6 +69,7 @@ class Voxel(ProjectionObject, Singleton):
         0, 2, 3
     )
 
+    # todo: Можно добавить кэширование для расчета позиций и нормалей
     @classmethod
     def generate_geometry(cls, ctx: ArcadeContext, size: Point3 = (1, 1, 1), center: Point3 = (0, 0, 0)) -> Geometry:
         offset = tuple(component / 2 for component in size)
@@ -117,31 +118,42 @@ class WorldProjection(Object):
         self.sort_direction: tuple[int, int, int] | None = None
         self.iterator: VoxelIterator | None = None
         self.update_iterator()
-        self.reference_voxel = Voxel.generate_geometry(self.ctx, center = self.world.center)
+        self.buffer_index = 0
+        self.reference_voxels = tuple(
+            Voxel.generate_geometry(self.ctx, center = self.world.center)
+            for _ in range(self.settings.GPU_BUFFER_COUNT)
+        )
 
         self.program["u_world_min"] = self.world.min
         self.program["u_world_max"] = self.world.max
 
-        self.positions_vbo = self.ctx.buffer(reserve = self.voxel_count * 4 * 4, usage = "stream")
-        self.colors_vbo = self.ctx.buffer(reserve = self.voxel_count * 4 * 1, usage = "stream")
+        self.positions_vbos = tuple(
+            self.ctx.buffer(reserve = self.voxel_count * 4 * 4, usage = "stream")
+            for _ in range(self.settings.GPU_BUFFER_COUNT)
+        )
+        self.colors_vbos = tuple(
+            self.ctx.buffer(reserve = self.voxel_count * 4 * 1, usage = "stream")
+            for _ in range(self.settings.GPU_BUFFER_COUNT)
+        )
 
-        self.reference_voxel.append_buffer_description(
-            BufferDescription(
-                self.positions_vbo,
-                "4i",
-                ["in_instance_position"],
-                instanced = True
+        for index in range(self.settings.GPU_BUFFER_COUNT):
+            self.reference_voxels[index].append_buffer_description(
+                BufferDescription(
+                    self.positions_vbos[index],
+                    "4i",
+                    ["in_instance_position"],
+                    instanced = True
+                )
             )
-        )
-        self.reference_voxel.append_buffer_description(
-            BufferDescription(
-                self.colors_vbo,
-                "4f1",
-                ["in_instance_color"],
-                normalized = ["in_instance_color"],
-                instanced = True
+            self.reference_voxels[index].append_buffer_description(
+                BufferDescription(
+                    self.colors_vbos[index],
+                    "4f1",
+                    ["in_instance_color"],
+                    normalized = ["in_instance_color"],
+                    instanced = True
+                )
             )
-        )
 
         # (r, g, b, a)
         # noinspection PyTypeChecker
@@ -149,19 +161,26 @@ class WorldProjection(Object):
         self.colors_to_update: set[tuple[int, int, int]] = {(x, y, z) for x, y, z, _ in self.iterator}
 
         self.inited = False
+        # Для инициализации первого буфера, чтобы картинка была на экране сразу
+        # todo: Когда добавится кнопка, отвечающая за отрисовку граней,
+        #  пробросить ее в инициализирующий вызов self.update_buffers
+        self.update_buffers(True)
+        self.buffer_index = (self.buffer_index - 1) % self.settings.GPU_BUFFER_COUNT
 
-    def update_buffers(self) -> Any:
+    def update_buffers(self, draw_faces: bool) -> Any:
         for x, y, z in self.colors_to_update:
             self.mix_color(x, y, z)
         self.colors_to_update.clear()
 
-        positions = np.ascontiguousarray(self.iterator)
-        self.positions_vbo.write(positions)
+        if draw_faces:
+            positions = np.ascontiguousarray(self.iterator)
+            self.positions_vbos[self.buffer_index].write(positions)
 
         ordered_colors = self.colors[self.iterator[:, 0], self.iterator[:, 1], self.iterator[:, 2]]
         colors = np.ascontiguousarray(ordered_colors)
-        self.colors_vbo.write(colors)
+        self.colors_vbos[self.buffer_index].write(colors)
 
+        self.buffer_index = (self.buffer_index + 1) % self.settings.GPU_BUFFER_COUNT
         self.inited = True
 
     # todo: Возможно, для ускорения расчетов, обновлять цвет только при его ЗНАЧИТЕЛЬНОМ изменении?
@@ -190,17 +209,20 @@ class WorldProjection(Object):
     def start(self) -> None:
         pass
 
+    # todo: Перейти на OIT (Order-Independent Transparency)?
     # todo: Для ускорения можно перейти на indirect render?
     def draw(self, draw_faces: bool, draw_edges: bool) -> None:
-        self.update_iterator()
-        if not self.inited:
-            self.update_buffers()
+        if draw_faces or draw_edges:
+            self.update_iterator()
+            if not self.inited:
+                self.update_buffers(draw_faces)
 
-        projection_matrix = self.window.projector.generate_projection_matrix()
-        view_matrix = self.window.projector.generate_view_matrix()
-        self.program["u_vp"] = projection_matrix @ view_matrix
+            projection_matrix = self.window.projector.generate_projection_matrix()
+            view_matrix = self.window.projector.generate_view_matrix()
+            self.program["u_vp"] = projection_matrix @ view_matrix
 
-        self.reference_voxel.render(self.program, instances = self.voxel_count)
+        if draw_faces:
+            self.reference_voxels[self.buffer_index].render(self.program, instances = self.voxel_count)
 
     # todo: добавить кэш или предрасчет
     def update_iterator(self) -> None:
