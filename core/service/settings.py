@@ -16,7 +16,7 @@ class Settings(Singleton):
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
 
-        self.WORLD_SHAPE = (25, 25, 25)
+        self.WORLD_SHAPE = (70, 70, 70)
         self.SEED = None
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1

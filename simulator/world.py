@@ -208,7 +208,6 @@ class WorldProjection(Object):
         axis_sort_order = self.window.projector.view.axis_sort_order
         sort_direction = self.window.projector.view.sort_direction
 
-        # todo: Тормозит на моменте обновления буфера, а не на обновлении итератора
         if self.axis_sort_order != axis_sort_order or self.sort_direction != sort_direction:
             self.axis_sort_order = axis_sort_order
             self.sort_direction = sort_direction
@@ -218,7 +217,7 @@ class WorldProjection(Object):
             for i in range(3):
                 if forward[i] < 0:
                     # Идем от начала к концу
-                    ranges[i] = range(self.world.min[i], self.world.max[i] + 1, 1)
+                    ranges[i] = range(self.world.min[i], self.world.max[i] + 1)
                 else:
                     # Идем от конца к началу
                     ranges[i] = range(self.world.max[i], self.world.min[i] - 1, -1)
@@ -238,18 +237,9 @@ class World(Object):
         self.width, self.length, self.height = self.shape
         assert self.width > 0 and self.length > 0 and self.height > 0, "World width, length and height must be greater then zero"
 
-        if self.width == 1:
-            self.min_x = 0
-        else:
-            self.min_x = -(self.width // 2)
-        if self.length == 1:
-            self.min_y = 0
-        else:
-            self.min_y = -(self.length // 2)
-        if self.height == 1:
-            self.min_z = 0
-        else:
-            self.min_z = -(self.height // 2)
+        self.min_x = 0 if self.width == 1 else -(self.width // 2)
+        self.min_y = 0 if self.length == 1 else -(self.length // 2)
+        self.min_z = 0 if self.height == 1 else -(self.height // 2)
         self.min = (self.min_x, self.min_y, self.min_z)
 
         self.max_x = self.min_x + self.width - 1
