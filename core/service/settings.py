@@ -4,7 +4,7 @@ from core.service.singleton import Singleton
 
 
 class Settings(Singleton):
-    def __init__(self):
+    def __init__(self) -> None:
         # Настройки логгера
         self.LOG_FORMAT = ("[%(asctime)s] - [%(levelname)s] - %(name)s"
                            " - (%(filename)s).%(funcName)s(%(lineno)d) - %(message)s")
@@ -15,6 +15,8 @@ class Settings(Singleton):
         self.RESOURCES = "resources"
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
+        self.GPU_BUFFER_COUNT = 3
+        assert self.GPU_BUFFER_COUNT > 0, f"GPU_BUFFER_COUNT ({self.GPU_BUFFER_COUNT}) must be grater then 0"
 
         self.WORLD_SHAPE = (70, 70, 70)
         self.SEED = None
@@ -34,6 +36,5 @@ class Settings(Singleton):
 
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
-        self.SPRITE_SIZE = 100
 
         self.COLOR_TEST = True
