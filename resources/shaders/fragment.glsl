@@ -18,7 +18,6 @@ uniform float u_zoom;
 
 out vec4 f_color;
 
-// todo: центр вокселя (0, 0, 0) должен быть в (0, 0)
 void main() {
     u_near;
     u_far;
@@ -40,11 +39,13 @@ void main() {
     u_view_forward * ray_forward_local.z
     );
 
+    // Смещение отображения мира так, чтобы центр воксел (0, 0, 0) был в позиции (0, 0, 0)
+    vec3 biased_view_position = u_view_position + vec3(0.5);
+
     // Нужно для ускорения вычислений, заменяет деление на умножение
     vec3 ray_backward = 1.0 / (ray_forward + vec3(1e-9));
-    float epsilon = 0.001;
-    vec3 distance_to_mins = (u_world_min - u_view_position) * ray_backward;
-    vec3 distance_to_maxes = (u_world_max + 1 - u_view_position) * ray_backward;
+    vec3 distance_to_mins = (u_world_min - biased_view_position) * ray_backward;
+    vec3 distance_to_maxes = (u_world_max + 1 - biased_view_position) * ray_backward;
     vec3 near_bounds = min(distance_to_mins, distance_to_maxes);
     vec3 far_bounds = max(distance_to_mins, distance_to_maxes);
 
@@ -56,7 +57,7 @@ void main() {
     if (exit_distance > max(entry_distance, 0.0)) {
         // Расстояние до границы мира, или 0, если камера внутри мира
         float ray_distance_offset = max(entry_distance, 0.0) + 0.001;
-        vec3 ray_start = u_view_position + ray_forward * ray_distance_offset;
+        vec3 ray_start = biased_view_position + ray_forward * ray_distance_offset;
 
         // Позиция вокселя, внутри которого сейчас находится луч
         vec3 voxel_position = floor(ray_start);

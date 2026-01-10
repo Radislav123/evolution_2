@@ -20,7 +20,6 @@ class ProjectCameraData(CameraData, ProjectMixin):
 
     def __init__(self, projector: "ProjectProjector") -> None:
         self.projector = projector
-
         self.rotation_radius = self.settings.CAMERA_ROTATION_RADIUS
 
         # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
