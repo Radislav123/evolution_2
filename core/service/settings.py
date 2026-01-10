@@ -19,6 +19,8 @@ class Settings(Singleton):
         self.RESOURCES = "resources"
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
+        self.GPU_BUFFER_COUNT = 3
+        assert self.GPU_BUFFER_COUNT > 0, f"GPU_BUFFER_COUNT ({self.GPU_BUFFER_COUNT}) must be grater then 0"
 
         self.WORLD_SHAPE = (25, 25, 25)
         self.SEED = None
