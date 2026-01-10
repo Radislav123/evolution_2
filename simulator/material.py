@@ -11,12 +11,13 @@ class Material:
     color: tuple[int, int, int, int]
 
 
+# todo: remove Vacuum
 class Vacuum(Material):
     mass = 0
     color = ProjectColors.MATERIAL_VACUUM
 
 
-# todo: replace it with generic
-class Water(Material):
+# todo: Добавить базовые элементы, из которых будут создаваться материалы.
+class Unit(Material):
     mass = 1
-    color = ProjectColors.MATERIAL_WATER
+    color = ProjectColors.MATERIAL_UNIT

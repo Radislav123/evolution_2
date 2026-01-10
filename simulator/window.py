@@ -89,9 +89,8 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.clear()
 
         with self.projector.activate():
-            draw_faces = True
-            draw_edges = True
-            self.world.projection.draw(draw_faces, draw_edges)
+            draw_voxels = True
+            self.world.projection.draw(draw_voxels)
 
         self.ui_manager.draw()
 

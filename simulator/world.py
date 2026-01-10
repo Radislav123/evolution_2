@@ -1,7 +1,6 @@
 import datetime
 import os
 import random
-from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
@@ -9,14 +8,11 @@ from typing import TYPE_CHECKING
 import arcade
 import numpy as np
 import pyglet
-from arcade import ArcadeContext
-from arcade.gl import BufferDescription, Geometry
-from arcade.types import Point3
+from arcade.gl import BufferDescription
 
 from core.service.colors import ProjectColors
-from core.service.object import Object, ProjectionObject
-from core.service.singleton import Singleton
-from simulator.material import Materials, Vacuum, Water
+from core.service.object import Object
+from simulator.material import Materials, Unit, Vacuum
 
 
 if TYPE_CHECKING:
@@ -26,7 +22,6 @@ VoxelIterator = np.ndarray[tuple[int, int, int], ...]
 ColorIterator = np.ndarray[ProjectColors.ArcadeType, ...]
 
 
-# todo: Сделать двойную буферизацию
 class WorldProjection(Object):
     def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
@@ -90,10 +85,12 @@ class WorldProjection(Object):
 
         self.inited = False
 
-    # todo: Возможно, для ускорения расчетов, обновлять цвет только при его ЗНАЧИТЕЛЬНОМ изменении?
+    # todo: Сейчас цвет не зависит от количества вещества в вокселе.
+    #  Для того, чтобы убрать max_material_amount, нужно учитывать.
+    # todo: Возможно, быстрее будет рассчитывать цвет в шейдере?
+    #  Но как тогда быть с тем, что в одном вокселе может быть несколько веществ?
     def mix_color(self, x: int, y: int, z: int) -> None:
-        color_test = self.settings.COLOR_TEST
-        if color_test:
+        if self.settings.COLOR_TEST:
             # Нормализованная позиция
             position = tuple(component / self.world.shape[index] for index, component in enumerate((x, y, z)))
             start_color = ProjectColors.WHITE
@@ -107,10 +104,10 @@ class WorldProjection(Object):
             materials = self.world.material[x + self.world.min_x, y + self.world.min_y, z + self.world.min_z]
             total_amount = sum(materials.values())
             rgb = (
-                round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount)
+                sum(material.color[index] * amount for material, amount in materials.items()) // total_amount
                 for index in range(3)
             )
-            alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
+            alpha = sum(material.color[3] * amount for material, amount in materials.items()) // total_amount
         self.colors[x, y, z] = (*rgb, alpha)
 
     def reset(self) -> None:
@@ -120,8 +117,8 @@ class WorldProjection(Object):
         pass
 
     # todo: Для ускорения можно перейти на indirect render?
-    def draw(self, draw_faces: bool, draw_edges: bool) -> None:
-        if draw_faces or draw_edges:
+    def draw(self, draw_voxels: bool) -> None:
+        if draw_voxels:
             for x, y, z in self.colors_to_update:
                 self.mix_color(x, y, z)
             self.colors_to_update.clear()
@@ -147,7 +144,7 @@ class WorldProjection(Object):
             self.raycast_program["u_view_up"] = self.window.projector.view.up
             self.raycast_program["u_zoom"] = self.window.projector.view.zoom
 
-        self.scene.render(self.raycast_program)
+            self.scene.render(self.raycast_program)
 
 
 class World(Object):
@@ -219,7 +216,7 @@ class World(Object):
         for x, y, z in self.iterator:
             point_radius = max((x ** 2 + y ** 2 + z ** 2) ** (1 / 2), 1)
             if point_radius <= world_sphere_radius:
-                self.material[x, y, z][Water] = round(
+                self.material[x, y, z][Unit] = round(
                     self.max_material_amount * (world_sphere_radius - point_radius) / world_sphere_radius
                 )
 

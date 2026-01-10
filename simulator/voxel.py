@@ -54,7 +54,6 @@ class Voxel(ProjectionObject, Singleton):
         0, 2, 3
     )
 
-    # todo: Можно добавить кэширование для расчета позиций и нормалей
     @classmethod
     def generate_geometry(cls, ctx: ArcadeContext, size: Point3 = (1, 1, 1), center: Point3 = (0, 0, 0)) -> Geometry:
         offset = tuple(component / 2 for component in size)

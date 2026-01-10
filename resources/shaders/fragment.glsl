@@ -1,6 +1,5 @@
 #version 460
 
-uniform sampler3D u_colors;
 uniform vec2 u_window_size;
 uniform float u_fov_scale;
 uniform float u_near;
@@ -15,9 +14,14 @@ uniform vec3 u_view_forward;
 uniform vec3 u_view_right;
 uniform vec3 u_view_up;
 uniform float u_zoom;
+uniform sampler3D u_colors;
 
 out vec4 f_color;
 
+// todo: Передавать текстуру с данными о материале (bool, bool, bool, bool)
+//  (наличие чего-либо в вокселе, непрозрачность, зеркальность, четвертая характеристика)
+// todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
+//  а добавлять цвет по количеству пройденного расстояния внутри вокселя.
 void main() {
     u_near;
     u_far;
@@ -56,8 +60,8 @@ void main() {
 
     if (exit_distance > max(entry_distance, 0.0)) {
         // Расстояние до границы мира, или 0, если камера внутри мира
-        float ray_distance_offset = max(entry_distance, 0.0) + 0.001;
-        vec3 ray_start = biased_view_position + ray_forward * ray_distance_offset;
+        float ray_start_offset = max(entry_distance, 0.0) + 0.001;
+        vec3 ray_start = biased_view_position + ray_forward * ray_start_offset;
 
         // Позиция вокселя, внутри которого сейчас находится луч
         vec3 voxel_position = floor(ray_start);
