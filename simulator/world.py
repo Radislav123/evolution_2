@@ -4,9 +4,11 @@ import random
 from array import array
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+import arcade
 import numpy as np
+import pyglet
 from arcade import ArcadeContext
 from arcade.gl import BufferDescription, Geometry
 from arcade.types import Point3
@@ -20,85 +22,8 @@ from simulator.material import Materials, Vacuum, Water
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
 
-VoxelIterator = np.ndarray[np.ndarray[np.int32], ...]
+VoxelIterator = np.ndarray[tuple[int, int, int], ...]
 ColorIterator = np.ndarray[ProjectColors.ArcadeType, ...]
-
-
-class Voxel(ProjectionObject, Singleton):
-    # Координаты вершин
-    vertices = (
-        # (x, y, z)
-        (0, 0, 0),
-        (0, 1, 0),
-        (1, 1, 0),
-        (1, 0, 0),
-        (0, 0, 1),
-        (0, 1, 1),
-        (1, 1, 1),
-        (1, 0, 1)
-    )
-    # Индексы точек граней
-    face_vertex_indexes = (
-        # Нижняя
-        (0, 1, 2, 3),
-        # Передняя
-        (3, 7, 4, 0),
-        # Правая
-        (2, 6, 7, 3),
-        # Задняя
-        (1, 5, 6, 2),
-        # Левая
-        (0, 4, 5, 1),
-        # Верхняя
-        (7, 6, 5, 4)
-    )
-    # Нормали граней
-    face_normals = (
-        (0, 0, -1),
-        (0, -1, 0),
-        (1, 0, 0),
-        (0, 1, 0),
-        (-1, 0, 0),
-        (0, 0, 1)
-    )
-    # Порядок обхода граней
-    face_order = (0, 1, 2, 3, 4, 5)
-    # Разбиение четырехугольника на треугольники
-    triangles = (
-        0, 1, 2,
-        0, 2, 3
-    )
-
-    # todo: Можно добавить кэширование для расчета позиций и нормалей
-    @classmethod
-    def generate_geometry(cls, ctx: ArcadeContext, size: Point3 = (1, 1, 1), center: Point3 = (0, 0, 0)) -> Geometry:
-        offset = tuple(component / 2 for component in size)
-
-        positions = array(
-            'f',
-            (center[component_index] + vertex[component_index] - offset[component_index]
-             for vertex in
-             (cls.vertices[cls.face_vertex_indexes[face_index][face_vertex_index]]
-              for face_index in cls.face_order
-              for face_vertex_index in cls.triangles)
-             for component_index in range(3)
-             )
-        )
-
-        normals = array(
-            'f',
-            (cls.face_normals[face_index][component_index]
-             for face_index in cls.face_order
-             for _ in cls.triangles
-             for component_index in range(3))
-        )
-
-        return ctx.geometry(
-            [
-                BufferDescription(ctx.buffer(data = positions), "3f", ["in_position"]),
-                BufferDescription(ctx.buffer(data = normals), "3f", ["in_normal"])
-            ]
-        )
 
 
 # todo: Сделать двойную буферизацию
@@ -107,98 +32,83 @@ class WorldProjection(Object):
         super().__init__()
         self.window = window
         self.ctx = self.window.ctx
-        self.program = self.ctx.load_program(
-            vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
-            fragment_shader = f"{self.settings.SHADERS}/fragment.glsl"
-        )
 
         self.world = world
         self.voxel_count = self.world.cell_count
         self.axis_sort_order: tuple[int, int, int] | None = None
         self.sort_direction: tuple[int, int, int] | None = None
-        self.iterator: VoxelIterator | None = None
-        self.update_iterator()
-        self.buffer_index = 0
-        self.reference_voxels = tuple(
-            Voxel.generate_geometry(self.ctx, center = self.world.center)
-            for _ in range(self.settings.GPU_BUFFER_COUNT)
-        )
 
-        self.program["u_world_min"] = self.world.min
-        self.program["u_world_max"] = self.world.max
-
-        self.positions_vbos = tuple(
-            self.ctx.buffer(reserve = self.voxel_count * 4 * 4, usage = "stream")
-            for _ in range(self.settings.GPU_BUFFER_COUNT)
-        )
-        self.colors_vbos = tuple(
-            self.ctx.buffer(reserve = self.voxel_count * 4 * 1, usage = "stream")
-            for _ in range(self.settings.GPU_BUFFER_COUNT)
-        )
-
-        for index in range(self.settings.GPU_BUFFER_COUNT):
-            self.reference_voxels[index].append_buffer_description(
-                BufferDescription(
-                    self.positions_vbos[index],
-                    "4i",
-                    ["in_instance_position"],
-                    instanced = True
-                )
-            )
-            self.reference_voxels[index].append_buffer_description(
-                BufferDescription(
-                    self.colors_vbos[index],
-                    "4f1",
-                    ["in_instance_color"],
-                    normalized = ["in_instance_color"],
-                    instanced = True
-                )
-            )
+        # Координаты для проекции начинаются с (0, 0, 0),
+        # так как это избавляет от необходимости их смещения при работе с графикой
+        self.iterator: VoxelIterator = self.world.iterator - self.world.min
 
         # (r, g, b, a)
         # noinspection PyTypeChecker
         self.colors: ColorIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
-        self.colors_to_update: set[tuple[int, int, int]] = {(x, y, z) for x, y, z, _ in self.iterator}
+        # noinspection PyTypeChecker
+        self.colors_to_update: set[tuple[int, int, int]] = {tuple(point) for point in self.iterator}
+
+        self.color_texture_id = pyglet.gl.GLuint()
+        pyglet.gl.glGenTextures(1, self.color_texture_id)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, self.color_texture_id)
+
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
+
+        pyglet.gl.glTexImage3D(
+            pyglet.gl.GL_TEXTURE_3D,
+            0,
+            pyglet.gl.GL_RGBA8,
+            self.world.width,
+            self.world.length,
+            self.world.height,
+            0,
+            pyglet.gl.GL_RGBA,
+            pyglet.gl.GL_UNSIGNED_BYTE,
+            None
+        )
+        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE0)
+
+        self.raycast_program = self.ctx.load_program(
+            vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
+            fragment_shader = f"{self.settings.SHADERS}/fragment.glsl"
+        )
+        self.raycast_program["u_colors"] = 0
+        self.raycast_program["u_window_size"] = self.window.size
+        self.raycast_program["u_fov_scale"] = self.window.projector.projection.fov_scale
+        self.raycast_program["u_near"] = self.window.projector.projection.near
+        self.raycast_program["u_far"] = self.window.projector.projection.far
+        self.raycast_program["u_world_shape"] = self.world.shape
+        self.raycast_program["u_world_max"] = self.world.max
+        self.raycast_program["u_world_min"] = self.world.min
+        # noinspection PyTypeChecker
+        self.raycast_program["u_background"] = tuple(component / 255 for component in self.window.background_color)
+        self.scene = arcade.gl.geometry.quad_2d_fs()
 
         self.inited = False
-        # Для инициализации первого буфера, чтобы картинка была на экране сразу
-        # todo: Когда добавится кнопка, отвечающая за отрисовку граней,
-        #  пробросить ее в инициализирующий вызов self.update_buffers
-        self.update_buffers(True)
-        self.buffer_index = (self.buffer_index - 1) % self.settings.GPU_BUFFER_COUNT
-
-    def update_buffers(self, draw_faces: bool) -> Any:
-        for x, y, z in self.colors_to_update:
-            self.mix_color(x, y, z)
-        self.colors_to_update.clear()
-
-        if draw_faces:
-            positions = np.ascontiguousarray(self.iterator)
-            self.positions_vbos[self.buffer_index].write(positions)
-
-        ordered_colors = self.colors[self.iterator[:, 0], self.iterator[:, 1], self.iterator[:, 2]]
-        colors = np.ascontiguousarray(ordered_colors)
-        self.colors_vbos[self.buffer_index].write(colors)
-
-        self.buffer_index = (self.buffer_index + 1) % self.settings.GPU_BUFFER_COUNT
-        self.inited = True
 
     # todo: Возможно, для ускорения расчетов, обновлять цвет только при его ЗНАЧИТЕЛЬНОМ изменении?
     def mix_color(self, x: int, y: int, z: int) -> None:
         color_test = self.settings.COLOR_TEST
         if color_test:
-            rgb = (
-                int((x + self.world.width / 2) / self.world.width * 255),
-                int((y + self.world.length / 2) / self.world.length * 255),
-                int((z + self.world.height / 2) / self.world.height * 255)
+            # Нормализованная позиция
+            position = tuple(component / self.world.shape[index] for index, component in enumerate((x, y, z)))
+            start_color = ProjectColors.WHITE
+            end_color = ProjectColors.BLACK
+            rgb = tuple(
+                int(start_color[i] * (1 - position[i]) + end_color[i] * position[i])
+                for i in range(3)
             )
-            alpha = int(255 / max(self.world.shape) ** (1 / 2))
+            alpha = int(255 / max(self.world.shape))
         else:
-            materials = self.world.material[x, y, z]
+            materials = self.world.material[x + self.world.min_x, y + self.world.min_y, z + self.world.min_z]
             total_amount = sum(materials.values())
             rgb = (
-                round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount) for
-                index in range(3)
+                round(sum(material.color[index] * amount for material, amount in materials.items()) // total_amount)
+                for index in range(3)
             )
             alpha = round(sum(material.color[3] * amount for material, amount in materials.items()) / total_amount)
         self.colors[x, y, z] = (*rgb, alpha)
@@ -209,47 +119,35 @@ class WorldProjection(Object):
     def start(self) -> None:
         pass
 
-    # todo: Перейти на OIT (Order-Independent Transparency)?
     # todo: Для ускорения можно перейти на indirect render?
     def draw(self, draw_faces: bool, draw_edges: bool) -> None:
         if draw_faces or draw_edges:
-            self.update_iterator()
-            if not self.inited:
-                self.update_buffers(draw_faces)
+            for x, y, z in self.colors_to_update:
+                self.mix_color(x, y, z)
+            self.colors_to_update.clear()
 
-            projection_matrix = self.window.projector.generate_projection_matrix()
-            view_matrix = self.window.projector.generate_view_matrix()
-            self.program["u_vp"] = projection_matrix @ view_matrix
+            pyglet.gl.glPixelStorei(pyglet.gl.GL_UNPACK_ALIGNMENT, 1)
+            pyglet.gl.glTexSubImage3D(
+                pyglet.gl.GL_TEXTURE_3D,
+                0,
+                0,
+                0,
+                0,
+                self.world.width,
+                self.world.length,
+                self.world.height,
+                pyglet.gl.GL_RGBA,
+                pyglet.gl.GL_UNSIGNED_BYTE,
+                self.colors.tobytes()
+            )
 
-        if draw_faces:
-            self.reference_voxels[self.buffer_index].render(self.program, instances = self.voxel_count)
+            self.raycast_program["u_view_position"] = self.window.projector.view.position
+            self.raycast_program["u_view_forward"] = self.window.projector.view.forward
+            self.raycast_program["u_view_right"] = self.window.projector.view.right
+            self.raycast_program["u_view_up"] = self.window.projector.view.up
+            self.raycast_program["u_zoom"] = self.window.projector.view.zoom
 
-    # todo: добавить кэш или предрасчет
-    def update_iterator(self) -> None:
-        forward = self.window.projector.view.forward
-        axis_sort_order = self.window.projector.view.axis_sort_order
-        sort_direction = self.window.projector.view.sort_direction
-
-        if self.axis_sort_order != axis_sort_order or self.sort_direction != sort_direction:
-            self.axis_sort_order = axis_sort_order
-            self.sort_direction = sort_direction
-
-            ranges = {}
-            major, middle, minor = axis_sort_order[2], axis_sort_order[1], axis_sort_order[0]
-            for i in range(3):
-                if forward[i] < 0:
-                    # Идем от начала к концу
-                    ranges[i] = range(self.world.min[i], self.world.max[i] + 1)
-                else:
-                    # Идем от конца к началу
-                    ranges[i] = range(self.world.max[i], self.world.min[i] - 1, -1)
-
-            grid = np.mgrid[ranges[0], ranges[1], ranges[2]]
-            iterator = grid.transpose(major + 1, middle + 1, minor + 1, 0).reshape(-1, 3)
-            self.iterator = np.zeros((iterator.shape[0], 4), dtype = np.int32)
-            self.iterator[:, :3] = iterator
-
-            self.inited = False
+        self.scene.render(self.raycast_program)
 
 
 class World(Object):
@@ -273,12 +171,11 @@ class World(Object):
         self.center_y = 0
         self.center_z = 0
         self.center = (self.center_x, self.center_y, self.center_z)
-        self.iterator: VoxelIterator = tuple(
-            (x, y, z)
-            for z in range(self.min_z, self.max_z + 1)
-            for y in range(self.min_y, self.max_y + 1)
-            for x in range(self.min_x, self.max_x + 1)
-        )
+        # Если мир очень большой, то хранение такого списка может быть очень дорогим по памяти удовольствием.
+        # Но это дает выигрыш в скорости
+        self.iterator: VoxelIterator = (
+                np.stack(np.indices(self.shape)[::-1], axis = -1).reshape(-1, 3) + self.min
+        ).astype(np.int32)
 
         if seed is None:
             seed = datetime.datetime.now().timestamp()
@@ -286,6 +183,7 @@ class World(Object):
         random.seed(self.seed)
 
         self.age = 0
+        # todo: Убрать эту переменную
         self.max_material_amount = 1000
 
         self.cell_count = self.width * self.length * self.height
@@ -325,6 +223,7 @@ class World(Object):
                     self.max_material_amount * (world_sphere_radius - point_radius) / world_sphere_radius
                 )
 
+        # todo: Убрать такой материал, как Vacuum, из симулятора
         for x, y, z in self.iterator:
             materials: Materials = self.material[x, y, z]
             total_amount = sum(amount for amount in materials.values())

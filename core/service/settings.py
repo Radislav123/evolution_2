@@ -3,6 +3,10 @@ import logging
 from core.service.singleton import Singleton
 
 
+class SettingError(ValueError):
+    pass
+
+
 class Settings(Singleton):
     def __init__(self) -> None:
         # Настройки логгера
@@ -15,10 +19,8 @@ class Settings(Singleton):
         self.RESOURCES = "resources"
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"{self.RESOURCES}/shaders"
-        self.GPU_BUFFER_COUNT = 3
-        assert self.GPU_BUFFER_COUNT > 0, f"GPU_BUFFER_COUNT ({self.GPU_BUFFER_COUNT}) must be grater then 0"
 
-        self.WORLD_SHAPE = (70, 70, 70)
+        self.WORLD_SHAPE = (25, 25, 25)
         self.SEED = None
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
@@ -26,8 +28,13 @@ class Settings(Singleton):
         self.CAMERA_MIN_ZOOM = 0.4
         self.CAMERA_MAX_ZOOM = 100
         self.CAMERA_ZOOM = 1
+        # Также является расстоянием до центра мира по умолчанию
         self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
+        self.CAMERA_FAR = 1000
+        # Не ставить 0, так как возникает ZeroDivisionError
+        self.CAMERA_NEAR = 0.00001
+        self.CAMERA_FOV = 20
 
         self.BUTTON_WIDTH = 230
         self.BUTTON_HEIGHT = 30
@@ -37,4 +44,11 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
 
-        self.COLOR_TEST = True
+        self.COLOR_TEST = False
+
+        self.check()
+
+    # Тут именно исключения, а не ассерты, так как настройки могут меняться пользователем
+    def check(self) -> None:
+        if min(self.WORLD_SHAPE) <= 0:
+            raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater then 0")

@@ -1,24 +1,91 @@
 #version 460
 
+uniform sampler3D u_colors;
+uniform vec2 u_window_size;
+uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
-uniform vec3 u_world_min;
-uniform vec3 u_world_max;
+uniform ivec3 u_world_shape;
+uniform ivec3 u_world_max;
+uniform ivec3 u_world_min;
+uniform vec4 u_background;
 
-flat in ivec3 v_instance_position;
-in vec3 v_normal;
-in vec4 v_color;
+uniform vec3 u_view_position;
+uniform vec3 u_view_forward;
+uniform vec3 u_view_right;
+uniform vec3 u_view_up;
+uniform float u_zoom;
 
 out vec4 f_color;
 
+// todo: центр вокселя (0, 0, 0) должен быть в (0, 0)
 void main() {
-    float inner_face_transparency_coeff = 0.7;
-    vec3 neigbour = v_instance_position + v_normal;
-    if ((neigbour.x >= u_world_min.x && neigbour.x <= u_world_max.x)
-    && (neigbour.y >= u_world_min.y && neigbour.y <= u_world_max.y)
-    && (neigbour.z >= u_world_min.z && neigbour.z <= u_world_max.z)) {
-        f_color = vec4(v_color.rgb, v_color.a * inner_face_transparency_coeff);
-    } else {
-        f_color = v_color;
+    u_near;
+    u_far;
+
+    // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
+    vec2 pixel_position = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
+
+    // Направление луча в локальных координатах камеры
+    vec3 ray_forward_local = normalize(vec3(
+    pixel_position.x * u_fov_scale / u_zoom,
+    pixel_position.y * u_fov_scale / u_zoom,
+    1.0
+    ));
+
+    // Перевод в мировые координаты
+    vec3 ray_forward = normalize(
+    u_view_right * ray_forward_local.x +
+    u_view_up * ray_forward_local.y +
+    u_view_forward * ray_forward_local.z
+    );
+
+    // Нужно для ускорения вычислений, заменяет деление на умножение
+    vec3 ray_backward = 1.0 / (ray_forward + vec3(1e-9));
+    float epsilon = 0.001;
+    vec3 distance_to_mins = (u_world_min - u_view_position) * ray_backward;
+    vec3 distance_to_maxes = (u_world_max + 1 - u_view_position) * ray_backward;
+    vec3 near_bounds = min(distance_to_mins, distance_to_maxes);
+    vec3 far_bounds = max(distance_to_mins, distance_to_maxes);
+
+    float entry_distance = max(max(near_bounds.x, near_bounds.y), near_bounds.z);
+    float exit_distance = min(min(far_bounds.x, far_bounds.y), far_bounds.z);
+
+    vec4 ray_color = vec4(0.0);
+
+    if (exit_distance > max(entry_distance, 0.0)) {
+        // Расстояние до границы мира, или 0, если камера внутри мира
+        float ray_distance_offset = max(entry_distance, 0.0) + 0.001;
+        vec3 ray_start = u_view_position + ray_forward * ray_distance_offset;
+
+        // Позиция вокселя, внутри которого сейчас находится луч
+        vec3 voxel_position = floor(ray_start);
+        vec3 step_forward = sign(ray_forward);
+        vec3 step_size = abs(ray_backward);
+
+        vec3 next_boundary = (voxel_position - ray_start + max(step_forward, 0.0)) * ray_backward;
+
+        int max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
+        for (int i = 0; i < max_iterations; i++) {
+            // Проверка границ
+            if (any(lessThan(voxel_position, u_world_min))
+            || any(greaterThan(voxel_position, u_world_max))) {
+                break;
+            }
+
+            vec4 voxel_color = texelFetch(u_colors, ivec3(voxel_position - u_world_min), 0);
+
+            if (voxel_color.a > 0.01) {
+                float alpha = voxel_color.a * (1.0 - ray_color.a);
+                ray_color += vec4(voxel_color.rgb * alpha, alpha);
+                if (ray_color.a >= 0.99) break;
+            }
+
+            vec3 mask = step(next_boundary.xyz, next_boundary.yzx) * step(next_boundary.xyz, next_boundary.zxy);
+            next_boundary += mask * step_size;
+            voxel_position += mask * step_forward;
+        }
     }
+
+    f_color = vec4(ray_color.rgb + (1.0 - ray_color.a) * u_background.rgb, 1.0);
 }

@@ -73,16 +73,6 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.ui_manager.add(common_layout)
 
     def start(self) -> None:
-        ctx_flags_enable = [
-            self.ctx.DEPTH_TEST,
-            self.ctx.BLEND,
-            self.ctx.CULL_FACE
-        ]
-        self.ctx.enable(*ctx_flags_enable)
-        ctx_flags_disable = []
-        self.ctx.disable(*ctx_flags_disable)
-        self.ctx.blend_func = self.ctx.SRC_ALPHA, self.ctx.ONE_MINUS_SRC_ALPHA
-
         self.ui_manager.enable()
         self.world = World(self.settings.WORLD_SHAPE, self, self.settings.SEED)
         self.world.start()
