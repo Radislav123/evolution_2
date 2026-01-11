@@ -23,7 +23,7 @@ class Settings(Singleton):
         self.CPU_COUNT = os.cpu_count()
 
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = (25, 25, 25)
+        self.WORLD_SHAPE = (15, 15, 15)
         # todo: Вернуть 64, когда увеличу мир
         # self.CHUNK_SHAPE = (64, 64, 64)
         self.CHUNK_SHAPE = (4, 4, 4)
@@ -36,7 +36,7 @@ class Settings(Singleton):
         # Также является расстоянием до центра мира по умолчанию
         self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
-        self.CAMERA_FAR = 1000
+        self.CAMERA_FAR = 200
         # Не ставить 0, так как возникает ZeroDivisionError
         self.CAMERA_NEAR = 0.00001
         self.CAMERA_FOV = 20

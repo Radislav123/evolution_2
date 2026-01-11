@@ -24,10 +24,6 @@ out vec4 f_color;
 // todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
 //  а добавлять цвет по количеству пройденного расстояния внутри вокселя.
 void main() {
-    // todo: эти переменные
-    u_near;
-    u_far;
-
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
     vec2 pixel_position = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
 
@@ -55,8 +51,8 @@ void main() {
     vec3 near_bounds = min(distance_to_mins, distance_to_maxes);
     vec3 far_bounds = max(distance_to_mins, distance_to_maxes);
 
-    float entry_distance = max(max(near_bounds.x, near_bounds.y), near_bounds.z);
-    float exit_distance = min(min(far_bounds.x, far_bounds.y), far_bounds.z);
+    float entry_distance = max(max(max(near_bounds.x, near_bounds.y), near_bounds.z), u_near);
+    float exit_distance = min(min(min(far_bounds.x, far_bounds.y), far_bounds.z), u_far);
 
     vec4 ray_color = vec4(0.0);
 
