@@ -20,7 +20,8 @@ class Object(ProjectMixin):
 
 
 class ProjectionObject(Object):
-    pass
+    def on_draw(self, *args, **kwargs) -> Any:
+        raise NotImplementedError()
 
 
 class PhysicalObject(Object):

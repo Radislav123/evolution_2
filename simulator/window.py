@@ -90,7 +90,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         with self.projector.activate():
             draw_voxels = True
-            self.world.projection.draw(draw_voxels)
+            self.world.projection.on_draw(draw_voxels)
 
         self.ui_manager.draw()
 

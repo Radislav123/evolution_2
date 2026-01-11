@@ -11,7 +11,7 @@ import pyglet
 from arcade.gl import BufferDescription
 
 from core.service.colors import ProjectColors
-from core.service.object import Object
+from core.service.object import Object, ProjectionObject
 from simulator.material import Materials, Unit, Vacuum
 
 
@@ -22,7 +22,7 @@ VoxelIterator = np.ndarray[tuple[int, int, int], ...]
 ColorIterator = np.ndarray[ProjectColors.ArcadeType, ...]
 
 
-class WorldProjection(Object):
+class WorldProjection(ProjectionObject):
     def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
         self.window = window
@@ -117,7 +117,7 @@ class WorldProjection(Object):
         pass
 
     # todo: Для ускорения можно перейти на indirect render?
-    def draw(self, draw_voxels: bool) -> None:
+    def on_draw(self, draw_voxels: bool) -> None:
         if draw_voxels:
             for x, y, z in self.colors_to_update:
                 self.mix_color(x, y, z)
