@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 CellIterator = npt.NDArray[np.int32]
 VoxelIterator = CellIterator
-ColorIterator = np.ndarray[np.uint8]
+ColorIterator = npt.NDArray[np.uint8]
 
 
 class WorldProjection(ProjectionObject):
