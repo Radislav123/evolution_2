@@ -1,4 +1,5 @@
 import logging
+import os
 
 from core.service.singleton import Singleton
 
@@ -18,12 +19,14 @@ class Settings(Singleton):
 
         self.RESOURCES = "resources"
         self.IMAGES = f"{self.RESOURCES}/images"
-        self.SHADERS = f"{self.RESOURCES}/shaders"
-        self.GPU_BUFFER_COUNT = 3
-        assert self.GPU_BUFFER_COUNT > 0, f"GPU_BUFFER_COUNT ({self.GPU_BUFFER_COUNT}) must be grater then 0"
+        self.SHADERS = f"shaders"
+        self.CPU_COUNT = os.cpu_count()
 
+        self.WORLD_SEED = None
         self.WORLD_SHAPE = (25, 25, 25)
-        self.SEED = None
+        # todo: Вернуть 64, когда увеличу мир
+        # self.CHUNK_SHAPE = (64, 64, 64)
+        self.CHUNK_SHAPE = (4, 4, 4)
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
@@ -46,11 +49,14 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
 
-        self.COLOR_TEST = False
+        self.COLOR_TEST = True
 
         self.check()
 
     # Тут именно исключения, а не ассерты, так как настройки могут меняться пользователем
     def check(self) -> None:
         if min(self.WORLD_SHAPE) <= 0:
-            raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater then 0")
+            raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater than 0")
+
+        if self.CPU_COUNT <= 0:
+            raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")

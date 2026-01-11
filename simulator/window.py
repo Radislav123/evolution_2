@@ -74,9 +74,9 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
     def start(self) -> None:
         self.ui_manager.enable()
-        self.world = World(self.settings.WORLD_SHAPE, self, self.settings.SEED)
-        self.world.start()
+        self.world = World()
 
+        self.world.start(self)
         self.world.projection.start()
 
         self.start_interface()
