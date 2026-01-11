@@ -22,11 +22,12 @@ class Settings(Singleton):
         self.SHADERS = f"shaders"
         self.CPU_COUNT = os.cpu_count()
 
+        self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = (15, 15, 15)
-        # todo: Вернуть 64, когда увеличу мир
-        # self.CHUNK_SHAPE = (64, 64, 64)
-        self.CHUNK_SHAPE = (4, 4, 4)
+        self.WORLD_SHAPE = (200, 200, 200)
+        self.CHUNK_SHAPE = (32, 32, 32)
+
+        self.CELL_SUBSTANCES_MAX_COUNT = 16
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
@@ -36,10 +37,13 @@ class Settings(Singleton):
         # Также является расстоянием до центра мира по умолчанию
         self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
-        self.CAMERA_FAR = 200
+        self.CAMERA_FAR = 1000
         # Не ставить 0, так как возникает ZeroDivisionError
         self.CAMERA_NEAR = 0.00001
         self.CAMERA_FOV = 20
+
+        self.WINDOW_WIDTH = 800
+        self.WINDOW_HEIGHT = 600
 
         self.BUTTON_WIDTH = 230
         self.BUTTON_HEIGHT = 30
@@ -55,8 +59,8 @@ class Settings(Singleton):
 
     # Тут именно исключения, а не ассерты, так как настройки могут меняться пользователем
     def check(self) -> None:
-        if min(self.WORLD_SHAPE) <= 0:
-            raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater than 0")
+        if min(self.WORLD_SHAPE) <= 1:
+            raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater than 1")
 
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")

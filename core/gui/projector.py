@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 
 class ProjectCameraData(CameraData, ProjectMixin):
+    position: Vec3
     forward: Vec3
     right: Vec3
     up: Vec3
@@ -22,12 +23,20 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.projector = projector
         self.rotation_radius = self.settings.CAMERA_ROTATION_RADIUS
 
-        # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
-        self.centralized_position = (0, 0, self.rotation_radius)
         # Должен совпадать с World.center
-        self.world_center = (0, 0, 0)
+        self.world_center = Vec3(*self.settings.WORLD_SHAPE) // 2
+        # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
+        self.centralized_position = self.world_center + Vec3(0, 0, self.rotation_radius)
+        self.centralized_forward = Vec3(0, 0, -1)
+        self.centralized_up = Vec3(0, 1, 0)
+        self.centralized_right = self.centralized_forward.cross(self.centralized_up).normalize()
 
-        super().__init__(self.centralized_position, Vec3(0, 1, 0), Vec3(0, 0, -1), self.settings.CAMERA_ZOOM)
+        super().__init__(
+            self.centralized_position,
+            self.centralized_up,
+            self.centralized_forward,
+            self.settings.CAMERA_ZOOM
+        )
         # Нормализация нужна, так как могут быть погрешности у чисел с ситуациями вида (1.00000000002, 0, 0)
         self.right = self.forward.cross(self.up).normalize()
         self.axis_sort_order: tuple[int, int, int] | None = None
@@ -37,30 +46,22 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.position = self.centralized_position
         self.zoom = self.settings.CAMERA_ZOOM
 
-        self.forward, self.up = arcade.camera.grips.look_at(self, self.world_center)
-        self.up = Vec3(0, 1, 0)
-        # Для инициализации
-        self.rotate(0, 0)
+        self.forward = self.centralized_forward
+        self.right = self.centralized_right
+        self.up = self.centralized_up
 
     # Перемещает камеру вправо/влево и вверх/вниз относительно направления взгляда и верха
     def pan(self, offset_x: float, offset_y: float) -> None:
-        old_position = Vec3(*self.position)
-
-        distance = abs(old_position.dot(self.forward))
+        distance = abs(self.position.dot(self.forward))
         world_unit_per_pixel = ((2 * distance * self.projector.projection.fov_scale)
                                 / self.projector.window.height / self.zoom)
 
         offset = (self.right * -offset_x + self.up * -offset_y) * world_unit_per_pixel
-        new_position = old_position + offset
-        self.position = (new_position.x, new_position.y, new_position.z)
+        self.position = self.position + offset
 
     # Перемещает камеру вперед/назад относительно направления взгляда
     def dolly(self, offset_z: float) -> None:
-        old_position = Vec3(*self.position)
-
-        offset = self.forward * offset_z
-        new_position = old_position + offset
-        self.position = (new_position.x, new_position.y, new_position.z)
+        self.position += self.forward * offset_z
 
     # Меняет зум и сдвигает картинку относительно курсора
     def change_zoom(self, offset: float) -> None:
@@ -74,15 +75,14 @@ class ProjectCameraData(CameraData, ProjectMixin):
     # Вращает камеру вокруг точки перед ней на расстоянии rotation_radius
     def rotate(self, offset_x: float, offset_y: float) -> None:
         # 1. Точка вращения и текущая позиция
-        position = Vec3(*self.position)
-        pivot = position + self.forward * self.rotation_radius
+        pivot = self.position + self.forward * self.rotation_radius
 
         # 2. Углы поворота
         dx = -offset_x / self.zoom * self.settings.CAMERA_ROTATION_SENSITIVITY
         dy = offset_y / self.zoom * self.settings.CAMERA_ROTATION_SENSITIVITY
 
-        # 4. Вектор от pivot до камеры
-        v4 = Vec4(*(position - pivot), 1)
+        # 3. Вектор от pivot до камеры
+        v4 = Vec4(*(self.position - pivot), 1)
 
         # 4. Матрицы вращения
         rotation_horizontal = Mat4.from_rotation(dx, self.up)

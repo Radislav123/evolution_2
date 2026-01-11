@@ -15,8 +15,8 @@ from simulator.world import World
 
 
 class ProjectWindow(arcade.Window, ProjectMixin):
-    def __init__(self, width: int, height: int) -> None:
-        super().__init__(width, height, center_window = True)
+    def __init__(self) -> None:
+        super().__init__(self.settings.WINDOW_WIDTH, self.settings.WINDOW_HEIGHT, center_window = True)
 
         self.tps: int = 0
         self.desired_tps: int = 0
@@ -96,7 +96,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
     def on_update(self, _: float) -> None:
         try:
-            self.world.on_update(1)
+            self.world.on_update(self.settings.WORLD_UPDATE_PERIOD)
         except Exception as error:
             error.window = self
             raise error

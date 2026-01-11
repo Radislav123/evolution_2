@@ -5,8 +5,6 @@ uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
 uniform ivec3 u_world_shape;
-uniform ivec3 u_world_max;
-uniform ivec3 u_world_min;
 uniform vec4 u_background;
 
 uniform vec3 u_view_position;
@@ -24,6 +22,9 @@ out vec4 f_color;
 // todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
 //  а добавлять цвет по количеству пройденного расстояния внутри вокселя.
 void main() {
+    ivec3 world_min = ivec3(0);
+    ivec3 world_max = u_world_shape;
+
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
     vec2 pixel_position = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
 
@@ -46,8 +47,8 @@ void main() {
 
     // Нужно для ускорения вычислений, заменяет деление на умножение
     vec3 ray_backward = 1.0 / (ray_forward + vec3(1e-9));
-    vec3 distance_to_mins = (u_world_min - biased_view_position) * ray_backward;
-    vec3 distance_to_maxes = (u_world_max + 1 - biased_view_position) * ray_backward;
+    vec3 distance_to_mins = (world_min - biased_view_position) * ray_backward;
+    vec3 distance_to_maxes = (world_max + 1 - biased_view_position) * ray_backward;
     vec3 near_bounds = min(distance_to_mins, distance_to_maxes);
     vec3 far_bounds = max(distance_to_mins, distance_to_maxes);
 
@@ -71,12 +72,12 @@ void main() {
         int max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
         for (int i = 0; i < max_iterations; i++) {
             // Проверка границ
-            if (any(lessThan(voxel_position, u_world_min))
-            || any(greaterThan(voxel_position, u_world_max))) {
+            if (any(lessThan(voxel_position, world_min))
+            || any(greaterThan(voxel_position, world_max))) {
                 break;
             }
 
-            vec4 voxel_color = texelFetch(u_colors, ivec3(voxel_position - u_world_min), 0);
+            vec4 voxel_color = texelFetch(u_colors, ivec3(voxel_position - world_min), 0);
 
             if (voxel_color.a > 0.01) {
                 float alpha = voxel_color.a * (1.0 - ray_color.a);

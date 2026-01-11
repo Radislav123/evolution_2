@@ -4,10 +4,7 @@ from simulator.window import ProjectWindow
 
 
 def simulate() -> None:
-    window_width = 800
-    window_height = 600
-
-    window = ProjectWindow(window_width, window_height)
+    window = ProjectWindow()
     try:
         window.start()
         arcade.run()
