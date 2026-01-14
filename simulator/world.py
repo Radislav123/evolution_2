@@ -10,7 +10,7 @@ import pyglet
 from arcade.gl import BufferDescription
 
 from core.service.object import PhysicalObject, ProjectionObject
-from simulator.substance import Unit
+from simulator.substance import Substance
 
 
 if TYPE_CHECKING:
@@ -31,7 +31,6 @@ class WorldProjection(ProjectionObject):
         self.voxel_count = self.world.cell_count
         self.iterator: VoxelIterator = self.world.iterator
 
-        # (r, g, b, a)
         self.colors: ColorIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
 
         self.color_texture_id = pyglet.gl.GLuint()
@@ -44,6 +43,7 @@ class WorldProjection(ProjectionObject):
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
 
+        # performance: Пометить текстуру как неизменяемую для GPU, чтобы сократить время чтения из нее
         pyglet.gl.glTexImage3D(
             pyglet.gl.GL_TEXTURE_3D,
             0,
@@ -109,16 +109,25 @@ class WorldProjection(ProjectionObject):
     def mix_colors(self) -> None:
         if self.settings.COLOR_TEST:
             index_z, index_y, index_x = np.indices(self.world.shape)
-            # r - красный
             self.colors[:, :, :, 0] = (index_x / (self.world.shape[2] - 1) * 255).astype(np.uint8)
-            # g - зеленый
             self.colors[:, :, :, 1] = (index_y / (self.world.shape[1] - 1) * 255).astype(np.uint8)
-            # b - синий
             self.colors[:, :, :, 2] = (index_z / (self.world.shape[0] - 1) * 255).astype(np.uint8)
-            # alpha - непрозрачность
             self.colors[:, :, :, 3] = max(255 // max(self.world.shape), 5)
         else:
-            raise NotImplementedError()
+            colors = Substance.colors[self.world.substances]
+            absorptions = Substance.absorptions[self.world.substances]
+
+            substances_optical_depth = absorptions * self.world.quantities
+            voxels_optical_depth = np.sum(substances_optical_depth, axis = -1, keepdims = True)
+            voxels_optical_depth = np.where(voxels_optical_depth == 0, 1e-9, voxels_optical_depth)
+            absorption_weights = substances_optical_depth / voxels_optical_depth
+
+            rgb = np.sqrt(np.sum((colors ** 2) * absorption_weights[..., np.newaxis], axis = -2))
+            transmittances = np.exp(-voxels_optical_depth.squeeze(-1) * self.settings.OPTICAL_DENSITY_SCALE)
+            opacities = (1.0 - transmittances) * 255
+
+            self.colors[..., :3] = rgb.astype(np.uint8)
+            self.colors[..., 3] = opacities.astype(np.uint8)
 
         self.need_update = False
 
@@ -180,9 +189,27 @@ class World(PhysicalObject):
     def generate_materials(self) -> None:
         world_sphere_radius = max((self.width + self.length + self.height) / 2 / 3, 1)
         index_z, index_y, index_x = np.indices(self.shape)
-        point_radius = np.maximum(np.sqrt(index_x ** 2 + index_y ** 2 + index_z ** 2), 1)
+        point_radius = np.maximum(
+            np.sqrt(
+                (self.width / 2 - index_x) ** 2 + (self.length / 2 - index_y) ** 2 + (self.height / 2 - index_z) ** 2
+            ),
+            1
+        )
         mask = point_radius <= world_sphere_radius
 
         quantities = (1000 * (world_sphere_radius - point_radius) // world_sphere_radius).astype(np.uint16)
-        self.substances[mask, 0] = Unit.id
         self.quantities[mask, 0] = quantities[mask]
+
+        relative_radius = point_radius / world_sphere_radius
+        conditions = (
+            relative_radius < 0.2,
+            (relative_radius >= 0.2) & (relative_radius < 0.4),
+            (relative_radius >= 0.4) & (relative_radius < 0.6),
+            (relative_radius >= 0.6) & (relative_radius < 0.8),
+            relative_radius >= 0.8
+        )
+        substance_ids = np.select(
+            conditions,
+            Substance.indexes[:5]
+        )
+        self.substances[mask, 0] = substance_ids[mask]

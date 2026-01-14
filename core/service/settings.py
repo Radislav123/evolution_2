@@ -24,8 +24,10 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = (200, 200, 200)
+        self.WORLD_SHAPE = (256, 256, 256)
         self.CHUNK_SHAPE = (32, 32, 32)
+
+        self.OPTICAL_DENSITY_SCALE = 0.001
 
         self.CELL_SUBSTANCES_MAX_COUNT = 16
 
@@ -37,7 +39,7 @@ class Settings(Singleton):
         # Также является расстоянием до центра мира по умолчанию
         self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
-        self.CAMERA_FAR = 1000
+        self.CAMERA_FAR = 10000
         # Не ставить 0, так как возникает ZeroDivisionError
         self.CAMERA_NEAR = 0.00001
         self.CAMERA_FOV = 20
@@ -53,7 +55,7 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
 
-        self.COLOR_TEST = True
+        self.COLOR_TEST = False
 
         self.check()
 
