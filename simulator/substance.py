@@ -13,8 +13,9 @@ class Substance:
 
     # Характеристики для отображения
     # Цвет без альфа-канала, так как он заменен на absorption
+    # Альфа канал заполнен 0 только для дополнения до 4 байтов
     # todo: Генерировать цвет на основе физических законов
-    color: tuple[int, int, int]
+    color: tuple[int, int, int, int]
     # Коэффициент поглощения света
     # todo: Реализовать спектральное поглощение, где для каждой компоненты будет свой коэффициент.
     #  Позволит "переключать зрение с человеческого" на то, что имеет определенное существо
@@ -30,7 +31,7 @@ class Substance:
 
         cls.colors = np.array(
             [substance.color for substance in cls.real_substances],
-            dtype = np.float32
+            dtype = np.uint8
         )
         cls.absorptions = np.array(
             [substance.absorption for substance in cls.real_substances],
@@ -46,31 +47,31 @@ class TestSubstance(Substance):
 class Primum(TestSubstance):
     mass = 1
     absorption = 0.5
-    color = (220, 100, 80)
+    color = (220, 100, 80, 0)
 
 
 class Secundum(TestSubstance):
     mass = 2
     absorption = 0.6
-    color = (255, 220, 50)
+    color = (255, 220, 50, 0)
 
 
 class Tertium(TestSubstance):
     mass = 3
     absorption = 0.7
-    color = (100, 200, 100)
+    color = (100, 200, 100, 0)
 
 
 class Quartum(TestSubstance):
     mass = 4
     absorption = 0.8
-    color = (200, 230, 255)
+    color = (200, 230, 255, 0)
 
 
 class Quintum(TestSubstance):
     mass = 5
     absorption = 0.9
-    color = (160, 80, 220)
+    color = (160, 80, 220, 0)
 
 
 Substance.calculate_arrays()

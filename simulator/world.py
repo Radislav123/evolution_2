@@ -1,5 +1,6 @@
 import datetime
 import random
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
@@ -26,37 +27,25 @@ class WorldProjection(ProjectionObject):
         super().__init__()
         self.window = window
         self.ctx = self.window.ctx
+        self.set_texture_settings()
 
         self.world = world
         self.voxel_count = self.world.cell_count
         self.iterator: VoxelIterator = self.world.iterator
 
         self.colors: ColorIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
-
         self.color_texture_id = pyglet.gl.GLuint()
-        pyglet.gl.glGenTextures(1, self.color_texture_id)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, self.color_texture_id)
+        self.color_texture_index = pyglet.gl.GL_TEXTURE0
+        self.init_color_texture()
 
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
+        # todo: Переименовать в color после переноса вычисления цвета в шейдер и удаления colors
+        self.palette_texture_id = pyglet.gl.GLuint()
+        self.palette_texture_index = pyglet.gl.GL_TEXTURE1
+        self.init_palette_texture()
 
-        # performance: Пометить текстуру как неизменяемую для GPU, чтобы сократить время чтения из нее
-        pyglet.gl.glTexImage3D(
-            pyglet.gl.GL_TEXTURE_3D,
-            0,
-            pyglet.gl.GL_RGBA8,
-            self.world.width,
-            self.world.length,
-            self.world.height,
-            0,
-            pyglet.gl.GL_RGBA,
-            pyglet.gl.GL_UNSIGNED_BYTE,
-            None
-        )
-        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE0)
+        self.absorption_texture_id = pyglet.gl.GLuint()
+        self.absorption_texture_index = pyglet.gl.GL_TEXTURE2
+        self.init_absorption_texture()
 
         self.program = self.ctx.load_program(
             vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
@@ -74,37 +63,81 @@ class WorldProjection(ProjectionObject):
 
         self.need_update = True
 
-    def start(self) -> None:
-        pass
+    @staticmethod
+    def set_texture_settings() -> None:
+        # performance: Этот параметр замедляет запись и чтение, но убирает необходимость в выравнивании.
+        #  Убрать его, но выровнять все передаваемые текстуры по 4 байта
+        pyglet.gl.glPixelStorei(pyglet.gl.GL_UNPACK_ALIGNMENT, 1)
 
-    # todo: Для ускорения можно перейти на indirect render?
-    def on_draw(self, draw_voxels: bool) -> None:
-        if draw_voxels:
-            if self.need_update:
-                self.mix_colors()
+    def init_color_texture(self) -> None:
+        pyglet.gl.glGenTextures(1, self.color_texture_id)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, self.color_texture_id)
 
-                pyglet.gl.glPixelStorei(pyglet.gl.GL_UNPACK_ALIGNMENT, 1)
-                pyglet.gl.glTexSubImage3D(
-                    pyglet.gl.GL_TEXTURE_3D,
-                    0,
-                    0,
-                    0,
-                    0,
-                    self.world.width,
-                    self.world.length,
-                    self.world.height,
-                    pyglet.gl.GL_RGBA,
-                    pyglet.gl.GL_UNSIGNED_BYTE,
-                    self.colors.tobytes()
-                )
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
 
-            self.program["u_view_position"] = self.window.projector.view.position
-            self.program["u_view_forward"] = self.window.projector.view.forward
-            self.program["u_view_right"] = self.window.projector.view.right
-            self.program["u_view_up"] = self.window.projector.view.up
-            self.program["u_zoom"] = self.window.projector.view.zoom
+        pyglet.gl.glTexStorage3D(
+            pyglet.gl.GL_TEXTURE_3D,
+            1,
+            pyglet.gl.GL_RGBA8,
+            self.world.width,
+            self.world.length,
+            self.world.height
+        )
+        pyglet.gl.glActiveTexture(self.color_texture_index)
 
-            self.scene.render(self.program)
+    def init_palette_texture(self) -> None:
+        pyglet.gl.glGenTextures(1, self.palette_texture_id)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, self.palette_texture_id)
+
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+
+        pyglet.gl.glTexStorage1D(
+            pyglet.gl.GL_TEXTURE_1D,
+            1,
+            pyglet.gl.GL_RGBA8,
+            Substance.colors.size
+        )
+        pyglet.gl.glTextureSubImage1D(
+            self.palette_texture_id,
+            0,
+            0,
+            Substance.colors.size,
+            pyglet.gl.GL_RGBA,
+            pyglet.gl.GL_UNSIGNED_BYTE,
+            Substance.colors.ctypes.data
+        )
+        pyglet.gl.glActiveTexture(self.palette_texture_index)
+
+    def init_absorption_texture(self) -> None:
+        pyglet.gl.glGenTextures(1, self.absorption_texture_id)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, self.absorption_texture_id)
+
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+
+        pyglet.gl.glTexStorage1D(
+            pyglet.gl.GL_TEXTURE_1D,
+            1,
+            pyglet.gl.GL_R32F,
+            Substance.absorptions.size
+        )
+        pyglet.gl.glTextureSubImage1D(
+            self.absorption_texture_id,
+            0,
+            0,
+            Substance.absorptions.size,
+            pyglet.gl.GL_RED,
+            pyglet.gl.GL_FLOAT,
+            Substance.absorptions.ctypes.data
+        )
+        pyglet.gl.glActiveTexture(self.absorption_texture_index)
 
     def mix_colors(self) -> None:
         if self.settings.COLOR_TEST:
@@ -114,7 +147,7 @@ class WorldProjection(ProjectionObject):
             self.colors[:, :, :, 2] = (index_z / (self.world.shape[0] - 1) * 255).astype(np.uint8)
             self.colors[:, :, :, 3] = max(255 // max(self.world.shape), 5)
         else:
-            colors = Substance.colors[self.world.substances]
+            colors = Substance.colors[..., :3][self.world.substances].astype(np.float32)
             absorptions = Substance.absorptions[self.world.substances]
 
             substances_optical_depth = absorptions * self.world.quantities
@@ -130,6 +163,46 @@ class WorldProjection(ProjectionObject):
             self.colors[..., 3] = opacities.astype(np.uint8)
 
         self.need_update = False
+
+    def start(self) -> None:
+        pass
+
+    # todo: Для ускорения можно перейти на indirect render?
+    def on_draw(self, draw_voxels: bool) -> None:
+        if draw_voxels:
+            # print("----------------------------------------")
+            total = time.time()
+            if self.need_update:
+                self.mix_colors()
+                # print(f"mix colors: {time.time() - total}")
+
+                temp = time.time()
+                pyglet.gl.glTextureSubImage3D(
+                    self.color_texture_id,
+                    0,
+                    0,
+                    0,
+                    0,
+                    self.world.width,
+                    self.world.length,
+                    self.world.height,
+                    pyglet.gl.GL_RGBA,
+                    pyglet.gl.GL_UNSIGNED_BYTE,
+                    self.colors.ctypes.data
+                )
+                # print(f"update texture: {time.time() - temp}")
+
+            self.program["u_view_position"] = self.window.projector.view.position
+            self.program["u_view_forward"] = self.window.projector.view.forward
+            self.program["u_view_right"] = self.window.projector.view.right
+            self.program["u_view_up"] = self.window.projector.view.up
+            self.program["u_zoom"] = self.window.projector.view.zoom
+
+            temp = time.time()
+            self.scene.render(self.program)
+            # print(f"render: {time.time() - temp}")
+            # print(f"total: {time.time() - total}")
+            self.need_update = True
 
 
 class World(PhysicalObject):
@@ -189,12 +262,18 @@ class World(PhysicalObject):
     def generate_materials(self) -> None:
         world_sphere_radius = max((self.width + self.length + self.height) / 2 / 3, 1)
         index_z, index_y, index_x = np.indices(self.shape)
-        point_radius = np.maximum(
-            np.sqrt(
-                (self.width / 2 - index_x) ** 2 + (self.length / 2 - index_y) ** 2 + (self.height / 2 - index_z) ** 2
-            ),
-            1
-        )
+        in_center = True
+        if in_center:
+            point_radius = np.maximum(
+                np.sqrt(
+                    (self.width / 2 - index_x) ** 2
+                    + (self.length / 2 - index_y) ** 2
+                    + (self.height / 2 - index_z) ** 2
+                ),
+                1
+            )
+        else:
+            point_radius = np.maximum(np.sqrt(index_x ** 2 + index_y ** 2 + index_z ** 2), 1)
         mask = point_radius <= world_sphere_radius
 
         quantities = (1000 * (world_sphere_radius - point_radius) // world_sphere_radius).astype(np.uint16)

@@ -24,12 +24,12 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = (256, 256, 256)
+        self.WORLD_SHAPE = (64, 64, 64)
         self.CHUNK_SHAPE = (32, 32, 32)
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
-        self.CELL_SUBSTANCES_MAX_COUNT = 16
+        self.CELL_SUBSTANCES_MAX_COUNT = 2
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
