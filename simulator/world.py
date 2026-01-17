@@ -20,12 +20,15 @@ if TYPE_CHECKING:
 CellIterator = npt.NDArray[np.int32]
 VoxelIterator = CellIterator
 
-WorldTextureIds = tuple[ctypes.c_uint, ...]
+OpenGLIds = tuple[ctypes.c_uint, ...]
 
 
 class WorldProjection(ProjectionObject):
-    substance_texture_ids: WorldTextureIds
-    quantity_texture_ids: WorldTextureIds
+    substance_texture_ids: OpenGLIds
+    quantity_texture_ids: OpenGLIds
+
+    substance_pbo_ids: OpenGLIds
+    quantity_pbo_ids: OpenGLIds
 
     def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
@@ -46,8 +49,8 @@ class WorldProjection(ProjectionObject):
         self.init_color_texture()
         self.init_absorption_texture()
 
-        self.substance_texture_ids = self.init_world_textures(0)
-        self.quantity_texture_ids = self.init_world_textures(1)
+        self.substance_texture_ids, self.substance_pbo_ids = self.init_world_textures(0)
+        self.quantity_texture_ids, self.quantity_pbo_ids = self.init_world_textures(1)
 
         self.program["u_window_size"] = self.window.size
         self.program["u_fov_scale"] = self.window.projector.projection.fov_scale
@@ -132,7 +135,7 @@ class WorldProjection(ProjectionObject):
 
     # todo: Писать сами данные в текстуру через pyglet.gl.glTextureSubImage3D
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
-    def init_world_textures(self, binding_index: int) -> WorldTextureIds:
+    def init_world_textures(self, binding_index: int) -> tuple[OpenGLIds, OpenGLIds]:
         handles = np.zeros(self.connected_texture_count, dtype = np.uint64)
 
         sampler_id = pyglet.gl.GLuint()
@@ -147,7 +150,13 @@ class WorldProjection(ProjectionObject):
         texture_ids = (pyglet.gl.GLuint * self.connected_texture_count)()
         pyglet.gl.glGenTextures(self.connected_texture_count, texture_ids)
 
-        for index, texture_id in enumerate(texture_ids):
+        pbo_ids = (pyglet.gl.GLuint * self.connected_texture_count)()
+        pyglet.gl.glGenBuffers(self.connected_texture_count, pbo_ids)
+
+        for index in range(self.connected_texture_count):
+            texture_id = texture_ids[index]
+            pbo_id = pbo_ids[index]
+
             pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, texture_id)
 
             pyglet.gl.glTexStorage3D(
@@ -158,10 +167,15 @@ class WorldProjection(ProjectionObject):
                 self.world.length,
                 self.world.height
             )
-            # noinspection PyTypeChecker
             handle = pyglet.gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
             pyglet.gl.glMakeTextureHandleResidentARB(ctypes.c_uint64(handle))
             handles[index] = handle
+
+            # В байтах
+            pbo_size = self.voxel_count * 8
+            pyglet.gl.glBindBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, pbo_id)
+            pyglet.gl.glBufferData(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, pbo_size, None, pyglet.gl.GL_STREAM_DRAW)
+            pyglet.gl.glBindBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, 0)
 
         buffer_id = pyglet.gl.GLuint()
         pyglet.gl.glGenBuffers(1, buffer_id)
@@ -175,11 +189,11 @@ class WorldProjection(ProjectionObject):
         )
         pyglet.gl.glBindBufferBase(pyglet.gl.GL_SHADER_STORAGE_BUFFER, binding_index, buffer_id)
 
-        return tuple(texture_ids)
+        return tuple(texture_ids), tuple(pbo_ids)
 
-    # performance: PBO (Pixel Buffer Object) - позволяет сделать обновление текстур неблокирующей операцией
     def update_world_textures(self) -> None:
-        for index, texture_id in enumerate(self.substance_texture_ids):
+        for index in range(self.connected_texture_count):
+            texture_id = self.substance_texture_ids[index]
             start = index * 4
             end = (index + 1) * 4
 
@@ -197,7 +211,8 @@ class WorldProjection(ProjectionObject):
                 np.ascontiguousarray(self.world.substances[..., start:end]).ctypes.data
             )
 
-        for index, texture_id in enumerate(self.quantity_texture_ids):
+        for index in range(self.connected_texture_count):
+            texture_id = self.quantity_texture_ids[index]
             start = index * 4
             end = (index + 1) * 4
 
@@ -217,6 +232,63 @@ class WorldProjection(ProjectionObject):
 
         self.need_update = False
 
+    # todo: remove method?
+    def update_world_textures_1(self) -> None:
+        for index in range(self.connected_texture_count):
+            texture_id = self.substance_texture_ids[index]
+            pbo_id = self.substance_pbo_ids[index]
+
+            pyglet.gl.glBindBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, pbo_id)
+            ptr = pyglet.gl.glMapBufferRange(
+                pyglet.gl.GL_PIXEL_UNPACK_BUFFER, 0, self.world.substances.nbytes,
+                pyglet.gl.GL_MAP_WRITE_BIT | pyglet.gl.GL_MAP_INVALIDATE_BUFFER_BIT
+            )
+
+            ctypes.memmove(ptr, self.world.substances.ctypes.data, self.world.substances.nbytes)
+            pyglet.gl.glUnmapBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER)
+            pyglet.gl.glTextureSubImage3D(
+                texture_id,
+                0,
+                0,
+                0,
+                0,
+                self.world.width,
+                self.world.length,
+                self.world.height,
+                pyglet.gl.GL_RGBA_INTEGER,
+                pyglet.gl.GL_UNSIGNED_SHORT,
+                0
+            )
+
+        for index in range(self.connected_texture_count):
+            texture_id = self.quantity_texture_ids[index]
+            pbo_id = self.quantity_pbo_ids[index]
+
+            pyglet.gl.glBindBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, pbo_id)
+            ptr = pyglet.gl.glMapBufferRange(
+                pyglet.gl.GL_PIXEL_UNPACK_BUFFER, 0, self.world.quantities.nbytes,
+                pyglet.gl.GL_MAP_WRITE_BIT | pyglet.gl.GL_MAP_INVALIDATE_BUFFER_BIT
+            )
+
+            ctypes.memmove(ptr, self.world.quantities.ctypes.data, self.world.quantities.nbytes)
+            pyglet.gl.glUnmapBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER)
+            pyglet.gl.glTextureSubImage3D(
+                texture_id,
+                0,
+                0,
+                0,
+                0,
+                self.world.width,
+                self.world.length,
+                self.world.height,
+                pyglet.gl.GL_RGBA_INTEGER,
+                pyglet.gl.GL_UNSIGNED_SHORT,
+                0
+            )
+
+        pyglet.gl.glBindBuffer(pyglet.gl.GL_PIXEL_UNPACK_BUFFER, 0)
+        self.need_update = False
+
     def start(self) -> None:
         pass
 
@@ -233,6 +305,9 @@ class WorldProjection(ProjectionObject):
             self.program["u_zoom"] = self.window.projector.view.zoom
 
             self.scene.render(self.program)
+
+            # todo: remove reset
+            self.need_update = True
 
 
 class World(PhysicalObject):

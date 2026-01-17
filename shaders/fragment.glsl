@@ -36,7 +36,7 @@ layout(std430, binding = 1) buffer Quantities {
 out vec4 f_color;
 
 
-vec4 get_voxel_color_text(ivec3 position) {
+vec4 get_voxel_color_test(ivec3 position) {
     vec4 start = u_test_color_cube_start;
     vec4 end = u_test_color_cube_end;
     vec3 rate = vec3(position) / vec3(u_world_shape);
@@ -48,43 +48,46 @@ vec4 get_voxel_color_text(ivec3 position) {
 }
 
 
+// performance: предрасчитывать цвет вокселя в compute shader
 vec4 get_voxel_color(ivec3 position) {
-    float substance_optical_depths[max_cell_substance_count];
-    vec3 substance_rgb[max_cell_substance_count];
+    vec3 rgb_squared = vec3(0.0);
     float optical_depth = 0.0;
-    vec3 rgb = vec3(0.0, 0.0, 0.0);
+    vec3 rgb = vec3(0.0);
     float opacity = 0.0;
 
-    for (int texture = 0; texture < u_connected_texture_count; texture++) {
-        uvec4 substances_4 = texelFetch(u_substances[texture], position, 0);
-        uvec4 quantities_4 = texelFetch(u_quantities[texture], position, 0);
-        for (int chanel = 0; chanel < 4; chanel++) {
-            int index = texture * 4 + chanel;
-            uint substance = substances_4[chanel];
-            uint quantity = quantities_4[chanel];
+    for (int texture_index = 0; texture_index < u_connected_texture_count; texture_index++) {
+        uvec4 substances_4 = texelFetch(u_substances[texture_index], position, 0);
+        uvec4 quantities_4 = texelFetch(u_quantities[texture_index], position, 0);
 
-            float substance_optical_depth = texelFetch(u_absorption, int(substance), 0)[0] * quantity;
-            substance_optical_depths[index] = substance_optical_depth;
+        for (int channel_index = 0; channel_index < 4; channel_index++) {
+            uint substance_id = substances_4[channel_index];
+            uint quantity = quantities_4[channel_index];
+
+            if (substance_id == 0u || quantity == 0u) continue;
+
+            float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
+            vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
+
+            float substance_optical_depth = absorption_rate * float(quantity);
             optical_depth += substance_optical_depth;
-
-            substance_rgb[index] = texelFetch(u_colors, int(substance), 0).rgb;
+            rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
         }
     }
+
     if (optical_depth > 0.0) {
-        for (int texture = 0; texture < u_connected_texture_count; texture++) {
-            for (int chanel = 0; chanel < 4; chanel++) {
-                int index = texture * 4 + chanel;
+        rgb = sqrt(rgb_squared / optical_depth);
 
-                rgb += pow(substance_rgb[index], vec3(2.0)) * substance_optical_depths[index] / optical_depth;
-            }
-        }
+        float absorption = optical_depth * u_optical_density_scale;
+        // Текущий вариант должен быть быстрее, чем с exp(), но пока что этого не видно
+        // opacity = 1.0 - exp(-absorption);
+        opacity = absorption / (1.0 + absorption);
     }
-    rgb = sqrt(rgb);
-    opacity = 1.0 - exp(-optical_depth * u_optical_density_scale);
+
     return vec4(rgb, opacity);
 }
 
 
+// performance: После разбиения на чанки, можно помечать чанки, в которых ничего не нужно рисовать?
 // todo: Добавить преломление
 // todo: Добавить отражение
 // todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
@@ -143,12 +146,9 @@ void main() {
             if (any(lessThan(voxel_position, world_min))
             || any(greaterThanEqual(voxel_position, world_max))) break;
 
-            vec4 voxel_color;
-            if (u_test_color_cube == true) {
-                voxel_color = get_voxel_color_text(ivec3(voxel_position - world_min));
-            } else {
-                voxel_color = get_voxel_color(ivec3(voxel_position - world_min));
-            }
+            vec4 voxel_color = u_test_color_cube ?
+            get_voxel_color_test(ivec3(voxel_position)) :
+            get_voxel_color(ivec3(voxel_position));
 
             if (voxel_color.a > 0.01) {
                 float alpha = voxel_color.a * (1.0 - ray_color.a);
@@ -157,6 +157,8 @@ void main() {
             }
 
             vec3 mask = step(next_boundary.xyz, next_boundary.yzx) * step(next_boundary.xyz, next_boundary.zxy);
+            if (mask.x > 0.0) mask.yz = vec2(0.0);
+            else if (mask.y > 0.0) mask.z = 0.0;
             next_boundary += mask * step_size;
             voxel_position += mask * step_forward;
         }
