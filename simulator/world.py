@@ -350,6 +350,7 @@ class World(PhysicalObject):
     def stop(self) -> None:
         self.thread_executor.shutdown()
 
+    # performance: Numba @njit(parallel=True)
     # performance: У numpy есть where, возможно он поможет не обновлять весь мир разом, а только активные ячейки
     def on_update(self, delta_time: int) -> None:
         futures = []
