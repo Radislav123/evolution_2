@@ -1,5 +1,5 @@
 import time
-from collections import defaultdict, deque
+from collections import deque
 
 import arcade
 import arcade.gui
@@ -47,24 +47,6 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         arcade.set_background_color(ProjectColors.BACKGROUND_LIGHT)
 
-    def count_statistics_tps(self) -> None:
-        timings = self.timings["tick"]
-        timings.append(self.tick_timestamp - self.previous_tick_timestamp)
-        try:
-            self.tps = int(len(timings) / sum(timings))
-        except ZeroDivisionError:
-            self.tps = self.desired_tps
-        self.timings["tps"].append(self.tps)
-
-    def count_statistics_fps(self) -> None:
-        timings = self.timings["frame"]
-        timings.append(self.frame_timestamp - self.previous_frame_timestamp)
-        try:
-            self.fps = int(len(timings) / sum(timings))
-        except ZeroDivisionError:
-            self.fps = self.desired_fps
-        self.timings["fps"].append(self.fps)
-
     def set_tps(self, tps: int) -> None:
         self.desired_tps = tps
         self.set_update_rate(1 / tps)
@@ -74,7 +56,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
     def set_fps(self, fps: int) -> None:
         self.desired_fps = fps
         self.set_draw_rate(1 / fps)
-        self.timings["frame"] = deque(maxlen = self.desired_fps * 10)
+        self.timings["frame"] = deque(maxlen = self.desired_fps)
         self.timings["fps"] = deque(maxlen = self.desired_fps * 10)
 
     def start_interface(self) -> None:
@@ -88,7 +70,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         world_age_button = DynamicTextButton(
             text_function = lambda: f"Возраст мира: {self.world.age}",
-            update_period = 0.01
+            update_period = 0.05
         )
         upper_right_corner_layout.add(world_age_button)
 
@@ -99,8 +81,9 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         upper_right_corner_layout.add(self.tps_button)
 
         self.fps_button = DynamicTextButton(
-            text_function = lambda: f"fps: {self.fps} / {self.desired_fps}",
-            update_period = 0.1
+            # min(self.fps + 1, self.desired_fps) - чтобы не было постоянного дребезжания между 59 и 60
+            text_function = lambda: f"fps: {min(self.fps + 1, self.desired_fps)} / {self.desired_fps}",
+            update_period = 0.5
         )
         upper_right_corner_layout.add(self.fps_button)
 
@@ -118,6 +101,25 @@ class ProjectWindow(arcade.Window, ProjectMixin):
     def stop(self) -> None:
         if self.world is not None:
             self.world.stop()
+
+    # performance: Перевести self.timings[x] на numpy?
+    def count_statistics_tps(self) -> None:
+        timings = self.timings["tick"]
+        timings.append(self.tick_timestamp - self.previous_tick_timestamp)
+        try:
+            self.tps = int(len(timings) / sum(timings))
+        except ZeroDivisionError:
+            self.tps = self.desired_tps
+        self.timings["tps"].append(self.tps)
+
+    def count_statistics_fps(self) -> None:
+        timings = self.timings["frame"]
+        timings.append(self.frame_timestamp - self.previous_frame_timestamp)
+        try:
+            self.fps = int(len(timings) / sum(timings))
+        except ZeroDivisionError:
+            self.fps = self.desired_fps
+        self.timings["fps"].append(self.fps)
 
     def on_update(self, _: float) -> None:
         try:
