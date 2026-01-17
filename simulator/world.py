@@ -1,3 +1,4 @@
+import ctypes
 import datetime
 import random
 import time
@@ -19,10 +20,14 @@ if TYPE_CHECKING:
 
 CellIterator = npt.NDArray[np.int32]
 VoxelIterator = CellIterator
-ColorIterator = npt.NDArray[np.uint8]
+
+WorldTextureIds = tuple[ctypes.c_uint, ...]
 
 
 class WorldProjection(ProjectionObject):
+    substance_texture_ids: WorldTextureIds
+    quantity_texture_ids: WorldTextureIds
+
     def __init__(self, world: World, window: "ProjectWindow") -> None:
         super().__init__()
         self.window = window
@@ -33,32 +38,33 @@ class WorldProjection(ProjectionObject):
         self.voxel_count = self.world.cell_count
         self.iterator: VoxelIterator = self.world.iterator
 
-        self.colors: ColorIterator = np.zeros((*self.world.shape, 4), dtype = np.uint8)
-        self.color_texture_id = pyglet.gl.GLuint()
-        self.color_texture_index = pyglet.gl.GL_TEXTURE0
-        self.init_color_texture()
-
-        # todo: Переименовать в color после переноса вычисления цвета в шейдер и удаления colors
-        self.palette_texture_id = pyglet.gl.GLuint()
-        self.palette_texture_index = pyglet.gl.GL_TEXTURE1
-        self.init_palette_texture()
-
-        self.absorption_texture_id = pyglet.gl.GLuint()
-        self.absorption_texture_index = pyglet.gl.GL_TEXTURE2
-        self.init_absorption_texture()
-
         self.program = self.ctx.load_program(
             vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
             fragment_shader = f"{self.settings.SHADERS}/fragment.glsl"
         )
-        self.program["u_colors"] = 0
+        self.connected_texture_count = self.settings.CELL_SUBSTANCE_COUNT // 4
+
+        self.init_color_texture()
+        self.init_absorption_texture()
+
+        self.substance_texture_ids = self.init_world_textures(0)
+        self.quantity_texture_ids = self.init_world_textures(1)
+
         self.program["u_window_size"] = self.window.size
         self.program["u_fov_scale"] = self.window.projector.projection.fov_scale
         self.program["u_near"] = self.window.projector.projection.near
         self.program["u_far"] = self.window.projector.projection.far
         self.program["u_world_shape"] = self.world.shape
+        self.program["u_connected_texture_count"] = self.connected_texture_count
+
         # noinspection PyTypeChecker
         self.program["u_background"] = tuple(component / 255 for component in self.window.background_color)
+        self.program["u_optical_density_scale"] = self.settings.OPTICAL_DENSITY_SCALE
+
+        self.program["u_test_color"] = self.settings.TEST_COLOR
+        self.program["u_test_color_start"] = self.settings.TEST_COLOR_START
+        self.program["u_test_color_end"] = self.settings.TEST_COLOR_END
+
         self.scene = arcade.gl.geometry.quad_2d_fs()
 
         self.need_update = True
@@ -66,32 +72,16 @@ class WorldProjection(ProjectionObject):
     @staticmethod
     def set_texture_settings() -> None:
         # performance: Этот параметр замедляет запись и чтение, но убирает необходимость в выравнивании.
-        #  Убрать его, но выровнять все передаваемые текстуры по 4 байта
+        #  Убрать его, но выровнять все передаваемые текстуры по 4 байта?
+        #  Перед тем как удалить его из кода, убедиться в том,
+        #  что это действительно положительно влияет на производительность.
         pyglet.gl.glPixelStorei(pyglet.gl.GL_UNPACK_ALIGNMENT, 1)
 
     def init_color_texture(self) -> None:
-        pyglet.gl.glGenTextures(1, self.color_texture_id)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, self.color_texture_id)
-
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_3D, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
-
-        pyglet.gl.glTexStorage3D(
-            pyglet.gl.GL_TEXTURE_3D,
-            1,
-            pyglet.gl.GL_RGBA8,
-            self.world.width,
-            self.world.length,
-            self.world.height
-        )
-        pyglet.gl.glActiveTexture(self.color_texture_index)
-
-    def init_palette_texture(self) -> None:
-        pyglet.gl.glGenTextures(1, self.palette_texture_id)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, self.palette_texture_id)
+        texture_id = pyglet.gl.GLuint()
+        pyglet.gl.glGenTextures(1, texture_id)
+        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE0)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, texture_id)
 
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
@@ -104,7 +94,7 @@ class WorldProjection(ProjectionObject):
             Substance.colors.size
         )
         pyglet.gl.glTextureSubImage1D(
-            self.palette_texture_id,
+            texture_id,
             0,
             0,
             Substance.colors.size,
@@ -112,11 +102,13 @@ class WorldProjection(ProjectionObject):
             pyglet.gl.GL_UNSIGNED_BYTE,
             Substance.colors.ctypes.data
         )
-        pyglet.gl.glActiveTexture(self.palette_texture_index)
+        self.program["u_colors"] = 0
 
     def init_absorption_texture(self) -> None:
-        pyglet.gl.glGenTextures(1, self.absorption_texture_id)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, self.absorption_texture_id)
+        texture_id = pyglet.gl.GLuint()
+        pyglet.gl.glGenTextures(1, texture_id)
+        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE1)
+        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, texture_id)
 
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
         pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
@@ -129,7 +121,7 @@ class WorldProjection(ProjectionObject):
             Substance.absorptions.size
         )
         pyglet.gl.glTextureSubImage1D(
-            self.absorption_texture_id,
+            texture_id,
             0,
             0,
             Substance.absorptions.size,
@@ -137,10 +129,58 @@ class WorldProjection(ProjectionObject):
             pyglet.gl.GL_FLOAT,
             Substance.absorptions.ctypes.data
         )
-        pyglet.gl.glActiveTexture(self.absorption_texture_index)
+        self.program["u_absorption"] = 1
 
+    # todo: Писать сами данные в текстуру через pyglet.gl.glTextureSubImage3D
+    # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
+    def init_world_textures(self, binding_index: int) -> WorldTextureIds:
+        handles = np.zeros(self.connected_texture_count, dtype = np.uint64)
+
+        sampler_id = pyglet.gl.GLuint()
+        pyglet.gl.glGenSamplers(1, sampler_id)
+
+        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
+        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
+        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
+
+        texture_ids = (pyglet.gl.GLuint * self.connected_texture_count)()
+        pyglet.gl.glGenTextures(self.connected_texture_count, texture_ids)
+
+        for index, texture_id in enumerate(texture_ids):
+            pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, texture_id)
+
+            pyglet.gl.glTexStorage3D(
+                pyglet.gl.GL_TEXTURE_3D,
+                1,
+                pyglet.gl.GL_RGBA16UI,
+                self.world.width,
+                self.world.length,
+                self.world.height
+            )
+            # noinspection PyTypeChecker
+            handle = pyglet.gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
+            pyglet.gl.glMakeTextureHandleResidentARB(ctypes.c_uint64(handle))
+            handles[index] = handle
+
+        buffer_id = pyglet.gl.GLuint()
+        pyglet.gl.glGenBuffers(1, buffer_id)
+        pyglet.gl.glBindBuffer(pyglet.gl.GL_SHADER_STORAGE_BUFFER, buffer_id)
+
+        pyglet.gl.glBufferData(
+            pyglet.gl.GL_SHADER_STORAGE_BUFFER,
+            handles.nbytes,
+            handles.ctypes.data,
+            pyglet.gl.GL_DYNAMIC_DRAW
+        )
+        pyglet.gl.glBindBufferBase(pyglet.gl.GL_SHADER_STORAGE_BUFFER, binding_index, buffer_id)
+
+        return tuple(texture_ids)
+
+    # todo: remove method
     def mix_colors(self) -> None:
-        if self.settings.COLOR_TEST:
+        if self.settings.TEST_COLOR:
             index_z, index_y, index_x = np.indices(self.world.shape)
             self.colors[:, :, :, 0] = (index_x / (self.world.shape[2] - 1) * 255).astype(np.uint8)
             self.colors[:, :, :, 1] = (index_y / (self.world.shape[1] - 1) * 255).astype(np.uint8)
@@ -164,6 +204,40 @@ class WorldProjection(ProjectionObject):
 
         self.need_update = False
 
+    # performance: PBO (Pixel Buffer Object) - позволяет сделать обновление текстур неблокирующей операцией
+    def update_world_textures(self) -> None:
+        for index, texture_id in enumerate(self.substance_texture_ids):
+            pyglet.gl.glTextureSubImage3D(
+                texture_id,
+                0,
+                0,
+                0,
+                0,
+                self.world.width,
+                self.world.length,
+                self.world.height,
+                pyglet.gl.GL_RGBA_INTEGER,
+                pyglet.gl.GL_UNSIGNED_SHORT,
+                np.ascontiguousarray(self.world.substances[..., (index * 4):((index + 1) * 4)]).ctypes.data
+            )
+
+        for index, texture_id in enumerate(self.quantity_texture_ids):
+            pyglet.gl.glTextureSubImage3D(
+                texture_id,
+                0,
+                0,
+                0,
+                0,
+                self.world.width,
+                self.world.length,
+                self.world.height,
+                pyglet.gl.GL_RGBA_INTEGER,
+                pyglet.gl.GL_UNSIGNED_SHORT,
+                np.ascontiguousarray(self.world.quantities[..., (index * 4):((index + 1) * 4)]).ctypes.data
+            )
+
+        self.need_update = False
+
     def start(self) -> None:
         pass
 
@@ -173,24 +247,8 @@ class WorldProjection(ProjectionObject):
             # print("----------------------------------------")
             total = time.time()
             if self.need_update:
-                self.mix_colors()
-                # print(f"mix colors: {time.time() - total}")
-
-                temp = time.time()
-                pyglet.gl.glTextureSubImage3D(
-                    self.color_texture_id,
-                    0,
-                    0,
-                    0,
-                    0,
-                    self.world.width,
-                    self.world.length,
-                    self.world.height,
-                    pyglet.gl.GL_RGBA,
-                    pyglet.gl.GL_UNSIGNED_BYTE,
-                    self.colors.ctypes.data
-                )
-                # print(f"update texture: {time.time() - temp}")
+                self.update_world_textures()
+                # print(f"update texture: {time.time() - total}")
 
             self.program["u_view_position"] = self.window.projector.view.position
             self.program["u_view_forward"] = self.window.projector.view.forward
@@ -202,7 +260,7 @@ class WorldProjection(ProjectionObject):
             self.scene.render(self.program)
             # print(f"render: {time.time() - temp}")
             # print(f"total: {time.time() - total}")
-            self.need_update = True
+            # self.need_update = True
 
 
 class World(PhysicalObject):
@@ -226,8 +284,8 @@ class World(PhysicalObject):
         self.cell_count = self.width * self.length * self.height
         # todo: Для уменьшения количества промахов кэша можно использовать кривую Мортона
         #  для хранения всех массивов (материалов, количество и т.д.)
-        self.substances = np.zeros((*self.shape, self.settings.CELL_SUBSTANCES_MAX_COUNT), dtype = np.uint16)
-        self.quantities = np.zeros((*self.shape, self.settings.CELL_SUBSTANCES_MAX_COUNT), dtype = np.uint16)
+        self.substances = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
+        self.quantities = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
 
         self.seed = self.settings.WORLD_SEED
         if self.seed is None:
