@@ -57,9 +57,9 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
 
-        self.TEST_COLOR = False
-        self.TEST_COLOR_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.01))
-        self.TEST_COLOR_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_SHAPE), 0.01))
+        self.TEST_COLOR_CUBE = True
+        self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
+        self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_SHAPE), 0.03))
 
         self.check()
 

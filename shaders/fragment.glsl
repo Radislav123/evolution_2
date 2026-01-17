@@ -13,9 +13,9 @@ uniform int u_connected_texture_count;
 uniform vec4 u_background;
 uniform float u_optical_density_scale;
 
-uniform bool u_test_color;
-uniform vec4 u_test_color_start;
-uniform vec4 u_test_color_end;
+uniform bool u_test_color_cube;
+uniform vec4 u_test_color_cube_start;
+uniform vec4 u_test_color_cube_end;
 
 uniform vec3 u_view_position;
 uniform vec3 u_view_forward;
@@ -36,12 +36,19 @@ layout(std430, binding = 1) buffer Quantities {
 out vec4 f_color;
 
 
-vec4 get_voxel_color(ivec3 position) {
-    // todo: remove stubs
-    u_test_color;
-    u_test_color_start;
-    u_test_color_end;
+vec4 get_voxel_color_text(ivec3 position) {
+    vec4 start = u_test_color_cube_start;
+    vec4 end = u_test_color_cube_end;
+    vec3 rate = vec3(position) / vec3(u_world_shape);
 
+    vec3 rgb = start.rgb * rate + end.rgb * (1 - rate);
+    float alpha = (start.a + end.a) / 2;
+
+    return vec4(rgb, alpha);
+}
+
+
+vec4 get_voxel_color(ivec3 position) {
     float substance_optical_depths[max_cell_substance_count];
     vec3 substance_rgb[max_cell_substance_count];
     float optical_depth = 0.0;
@@ -136,7 +143,13 @@ void main() {
             if (any(lessThan(voxel_position, world_min))
             || any(greaterThanEqual(voxel_position, world_max))) break;
 
-            vec4 voxel_color = get_voxel_color(ivec3(voxel_position - world_min));
+            vec4 voxel_color;
+            if (u_test_color_cube == true) {
+                voxel_color = get_voxel_color_text(ivec3(voxel_position - world_min));
+            } else {
+                voxel_color = get_voxel_color(ivec3(voxel_position - world_min));
+            }
+
             if (voxel_color.a > 0.01) {
                 float alpha = voxel_color.a * (1.0 - ray_color.a);
                 ray_color += vec4(voxel_color.rgb * alpha, alpha);

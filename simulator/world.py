@@ -1,7 +1,6 @@
 import ctypes
 import datetime
 import random
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
@@ -61,9 +60,9 @@ class WorldProjection(ProjectionObject):
         self.program["u_background"] = tuple(component / 255 for component in self.window.background_color)
         self.program["u_optical_density_scale"] = self.settings.OPTICAL_DENSITY_SCALE
 
-        self.program["u_test_color"] = self.settings.TEST_COLOR
-        self.program["u_test_color_start"] = self.settings.TEST_COLOR_START
-        self.program["u_test_color_end"] = self.settings.TEST_COLOR_END
+        self.program["u_test_color_cube"] = self.settings.TEST_COLOR_CUBE
+        self.program["u_test_color_cube_start"] = self.settings.TEST_COLOR_CUBE_START
+        self.program["u_test_color_cube_end"] = self.settings.TEST_COLOR_CUBE_END
 
         self.scene = arcade.gl.geometry.quad_2d_fs()
 
@@ -178,35 +177,12 @@ class WorldProjection(ProjectionObject):
 
         return tuple(texture_ids)
 
-    # todo: remove method
-    def mix_colors(self) -> None:
-        if self.settings.TEST_COLOR:
-            index_z, index_y, index_x = np.indices(self.world.shape)
-            self.colors[:, :, :, 0] = (index_x / (self.world.shape[2] - 1) * 255).astype(np.uint8)
-            self.colors[:, :, :, 1] = (index_y / (self.world.shape[1] - 1) * 255).astype(np.uint8)
-            self.colors[:, :, :, 2] = (index_z / (self.world.shape[0] - 1) * 255).astype(np.uint8)
-            self.colors[:, :, :, 3] = max(255 // max(self.world.shape), 5)
-        else:
-            colors = Substance.colors[..., :3][self.world.substances].astype(np.float32)
-            absorptions = Substance.absorptions[self.world.substances]
-
-            substances_optical_depth = absorptions * self.world.quantities
-            voxels_optical_depth = np.sum(substances_optical_depth, axis = -1, keepdims = True)
-            voxels_optical_depth = np.where(voxels_optical_depth == 0, 1e-9, voxels_optical_depth)
-            absorption_weights = substances_optical_depth / voxels_optical_depth
-
-            rgb = np.sqrt(np.sum((colors ** 2) * absorption_weights[..., np.newaxis], axis = -2))
-            transmittances = np.exp(-voxels_optical_depth.squeeze(-1) * self.settings.OPTICAL_DENSITY_SCALE)
-            opacities = (1.0 - transmittances) * 255
-
-            self.colors[..., :3] = rgb.astype(np.uint8)
-            self.colors[..., 3] = opacities.astype(np.uint8)
-
-        self.need_update = False
-
     # performance: PBO (Pixel Buffer Object) - позволяет сделать обновление текстур неблокирующей операцией
     def update_world_textures(self) -> None:
         for index, texture_id in enumerate(self.substance_texture_ids):
+            start = index * 4
+            end = (index + 1) * 4
+
             pyglet.gl.glTextureSubImage3D(
                 texture_id,
                 0,
@@ -218,10 +194,13 @@ class WorldProjection(ProjectionObject):
                 self.world.height,
                 pyglet.gl.GL_RGBA_INTEGER,
                 pyglet.gl.GL_UNSIGNED_SHORT,
-                np.ascontiguousarray(self.world.substances[..., (index * 4):((index + 1) * 4)]).ctypes.data
+                np.ascontiguousarray(self.world.substances[..., start:end]).ctypes.data
             )
 
         for index, texture_id in enumerate(self.quantity_texture_ids):
+            start = index * 4
+            end = (index + 1) * 4
+
             pyglet.gl.glTextureSubImage3D(
                 texture_id,
                 0,
@@ -233,7 +212,7 @@ class WorldProjection(ProjectionObject):
                 self.world.height,
                 pyglet.gl.GL_RGBA_INTEGER,
                 pyglet.gl.GL_UNSIGNED_SHORT,
-                np.ascontiguousarray(self.world.quantities[..., (index * 4):((index + 1) * 4)]).ctypes.data
+                np.ascontiguousarray(self.world.quantities[..., start:end]).ctypes.data
             )
 
         self.need_update = False
@@ -244,11 +223,8 @@ class WorldProjection(ProjectionObject):
     # todo: Для ускорения можно перейти на indirect render?
     def on_draw(self, draw_voxels: bool) -> None:
         if draw_voxels:
-            # print("----------------------------------------")
-            total = time.time()
             if self.need_update:
                 self.update_world_textures()
-                # print(f"update texture: {time.time() - total}")
 
             self.program["u_view_position"] = self.window.projector.view.position
             self.program["u_view_forward"] = self.window.projector.view.forward
@@ -256,11 +232,7 @@ class WorldProjection(ProjectionObject):
             self.program["u_view_up"] = self.window.projector.view.up
             self.program["u_zoom"] = self.window.projector.view.zoom
 
-            temp = time.time()
             self.scene.render(self.program)
-            # print(f"render: {time.time() - temp}")
-            # print(f"total: {time.time() - total}")
-            # self.need_update = True
 
 
 class World(PhysicalObject):
