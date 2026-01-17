@@ -26,6 +26,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.fps = 0
         self.desired_tps = 0
         self.desired_fps = 0
+        self.timings: dict[str, deque[float]] = {}
         self.set_tps(self.settings.MAX_TPS)
         self.set_fps(self.settings.MAX_FPS)
 
@@ -34,7 +35,6 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.tick_timestamp = timestamp
         self.previous_frame_timestamp = timestamp
         self.frame_timestamp = timestamp
-        self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
         self.world: World | None = None
 
@@ -68,10 +68,14 @@ class ProjectWindow(arcade.Window, ProjectMixin):
     def set_tps(self, tps: int) -> None:
         self.desired_tps = tps
         self.set_update_rate(1 / tps)
+        self.timings["tick"] = deque(maxlen = self.desired_tps)
+        self.timings["tps"] = deque(maxlen = self.desired_tps * 10)
 
     def set_fps(self, fps: int) -> None:
         self.desired_fps = fps
         self.set_draw_rate(1 / fps)
+        self.timings["frame"] = deque(maxlen = self.desired_fps * 10)
+        self.timings["fps"] = deque(maxlen = self.desired_fps * 10)
 
     def start_interface(self) -> None:
         upper_right_corner_layout = UIBoxLayout()
