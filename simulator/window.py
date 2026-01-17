@@ -15,14 +15,25 @@ from simulator.world import World
 
 
 class ProjectWindow(arcade.Window, ProjectMixin):
+    tps_button: DynamicTextButton
+    fps_button: DynamicTextButton
+
     def __init__(self) -> None:
         super().__init__(self.settings.WINDOW_WIDTH, self.settings.WINDOW_HEIGHT, center_window = True)
 
-        self.tps: int = 0
-        self.desired_tps: int = 0
+        self.frame = 0
+        self.tps = 0
+        self.fps = 0
+        self.desired_tps = 0
+        self.desired_fps = 0
         self.set_tps(self.settings.MAX_TPS)
-        self.previous_timestamp = time.time()
-        self.timestamp = time.time()
+        self.set_fps(self.settings.MAX_FPS)
+
+        timestamp = time.time()
+        self.previous_tick_timestamp = timestamp
+        self.tick_timestamp = timestamp
+        self.previous_frame_timestamp = timestamp
+        self.frame_timestamp = timestamp
         self.timings = defaultdict(lambda: deque(maxlen = self.settings.TIMINGS_LENGTH))
 
         self.world: World | None = None
@@ -36,18 +47,31 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         arcade.set_background_color(ProjectColors.BACKGROUND_LIGHT)
 
-    def count_statistics(self) -> None:
-        self.timings["tick"].append(self.timestamp - self.previous_timestamp)
+    def count_statistics_tps(self) -> None:
         timings = self.timings["tick"]
+        timings.append(self.tick_timestamp - self.previous_tick_timestamp)
         try:
             self.tps = int(len(timings) / sum(timings))
         except ZeroDivisionError:
             self.tps = self.desired_tps
         self.timings["tps"].append(self.tps)
 
+    def count_statistics_fps(self) -> None:
+        timings = self.timings["frame"]
+        timings.append(self.frame_timestamp - self.previous_frame_timestamp)
+        try:
+            self.fps = int(len(timings) / sum(timings))
+        except ZeroDivisionError:
+            self.fps = self.desired_fps
+        self.timings["fps"].append(self.fps)
+
     def set_tps(self, tps: int) -> None:
         self.desired_tps = tps
         self.set_update_rate(1 / tps)
+
+    def set_fps(self, fps: int) -> None:
+        self.desired_fps = fps
+        self.set_draw_rate(1 / fps)
 
     def start_interface(self) -> None:
         upper_right_corner_layout = UIBoxLayout()
@@ -64,11 +88,17 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         )
         upper_right_corner_layout.add(world_age_button)
 
-        tps_button = DynamicTextButton(
-            text_function = lambda: f"tps/желаемые tps: {self.tps} / {self.desired_tps}",
-            update_period = 0.05
+        self.tps_button = DynamicTextButton(
+            text_function = lambda: f"tps: {self.tps} / {self.desired_tps}",
+            update_period = 0.1
         )
-        upper_right_corner_layout.add(tps_button)
+        upper_right_corner_layout.add(self.tps_button)
+
+        self.fps_button = DynamicTextButton(
+            text_function = lambda: f"fps: {self.fps} / {self.desired_fps}",
+            update_period = 0.1
+        )
+        upper_right_corner_layout.add(self.fps_button)
 
         self.ui_manager.add(common_layout)
 
@@ -85,15 +115,6 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         if self.world is not None:
             self.world.stop()
 
-    def on_draw(self) -> EVENT_HANDLE_STATE:
-        self.clear()
-
-        with self.projector.activate():
-            draw_voxels = True
-            self.world.projection.on_draw(draw_voxels)
-
-        self.ui_manager.draw()
-
     def on_update(self, _: float) -> None:
         try:
             self.world.on_update(self.settings.WORLD_UPDATE_PERIOD)
@@ -101,9 +122,29 @@ class ProjectWindow(arcade.Window, ProjectMixin):
             error.window = self
             raise error
         finally:
-            self.previous_timestamp = self.timestamp
-            self.timestamp = time.time()
-            self.count_statistics()
+            if self.tps_button.state == 0:
+                self.previous_tick_timestamp = self.tick_timestamp
+                self.tick_timestamp = time.time()
+                self.count_statistics_tps()
+
+    def on_draw(self) -> EVENT_HANDLE_STATE:
+        try:
+            self.clear()
+
+            with self.projector.activate():
+                draw_voxels = True
+                self.world.projection.on_draw(draw_voxels)
+
+            self.ui_manager.draw()
+            self.frame += 1
+        except Exception as error:
+            error.window = self
+            raise error
+        finally:
+            if self.fps_button.state == 0:
+                self.previous_frame_timestamp = self.frame_timestamp
+                self.frame_timestamp = time.time()
+                self.count_statistics_fps()
 
     def on_key_press(self, symbol: int, modifiers: int) -> EVENT_HANDLE_STATE:
         self.pressed_keys.add(symbol)

@@ -54,6 +54,10 @@ class Settings(Singleton):
         # В секундах
         self.BUTTON_UPDATE_PERIOD = 0.5
 
+        self.MAX_FPS = 60
+        # В кадрах
+        self.UPDATE_WORLD_TEXTURE_PERIOD = 100
+
         self.MAX_TPS = 1000
         self.TIMINGS_LENGTH = 100
 

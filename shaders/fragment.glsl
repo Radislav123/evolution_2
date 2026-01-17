@@ -86,7 +86,7 @@ vec4 get_voxel_color(ivec3 position) {
     return vec4(rgb, opacity);
 }
 
-
+// performance: Способы ускоение: Метод "Спекулятивного кеширования", Variable Rate Shading (VRS), использование "Битовых масок пустоты", Репроекция (Temporal Reprojection)
 // performance: После разбиения на чанки, можно помечать чанки, в которых ничего не нужно рисовать?
 // todo: Добавить преломление
 // todo: Добавить отражение
@@ -97,12 +97,12 @@ void main() {
     ivec3 world_max = u_world_shape;
 
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
-    vec2 pixel_position = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
+    vec2 pixel_position_normalized = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
 
     // Направление луча в локальных координатах камеры
     vec3 ray_forward_local = normalize(vec3(
-    pixel_position.x * u_fov_scale / u_zoom,
-    pixel_position.y * u_fov_scale / u_zoom,
+    pixel_position_normalized.x * u_fov_scale / u_zoom,
+    pixel_position_normalized.y * u_fov_scale / u_zoom,
     1.0
     ));
 

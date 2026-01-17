@@ -295,7 +295,7 @@ class WorldProjection(ProjectionObject):
     # todo: Для ускорения можно перейти на indirect render?
     def on_draw(self, draw_voxels: bool) -> None:
         if draw_voxels:
-            if self.need_update:
+            if self.need_update and self.window.frame % self.settings.UPDATE_WORLD_TEXTURE_PERIOD == 0:
                 self.update_world_textures()
 
             self.program["u_view_position"] = self.window.projector.view.position
@@ -305,9 +305,6 @@ class WorldProjection(ProjectionObject):
             self.program["u_zoom"] = self.window.projector.view.zoom
 
             self.scene.render(self.program)
-
-            # todo: remove reset
-            self.need_update = True
 
 
 class World(PhysicalObject):
