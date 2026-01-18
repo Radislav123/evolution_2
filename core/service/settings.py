@@ -32,6 +32,7 @@ class Settings(Singleton):
         self.OPTICAL_DENSITY_SCALE = 0.001
 
         self.CELL_SUBSTANCE_COUNT = 4
+        self.CONNECTED_TEXTURE_COUNT = self.CELL_SUBSTANCE_COUNT // 4
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
@@ -55,10 +56,9 @@ class Settings(Singleton):
         self.BUTTON_UPDATE_PERIOD = 0.5
 
         self.MAX_FPS = 60
-        # В кадрах
-        self.WORLD_TEXTURE_UPDATE_PERIOD = 100
-
         self.MAX_TPS = 1000
+
+        self.BUFFER_INDEXES = set()
 
         self.TEST_COLOR_CUBE = False
         self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))

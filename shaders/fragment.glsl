@@ -48,7 +48,6 @@ vec4 get_voxel_color_test(ivec3 position) {
 }
 
 
-// performance: предрасчитывать цвет вокселя в compute shader
 vec4 get_voxel_color(ivec3 position) {
     vec3 rgb_squared = vec3(0.0);
     float optical_depth = 0.0;
