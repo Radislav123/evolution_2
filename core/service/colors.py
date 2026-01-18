@@ -16,3 +16,8 @@ class ProjectColors:
     BLACK = (0, 0, 0, 255)
     TRANSPARENT_WHITE = (255, 255, 255, 0)
     TRANSPARENT_BLACK = (0, 0, 0, 0)
+
+    @staticmethod
+    def to_opengl(color: ArcadeType) -> OpenGLType:
+        # noinspection PyTypeChecker
+        return tuple(component / 255 for component in color)

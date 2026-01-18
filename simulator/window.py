@@ -5,11 +5,11 @@ import arcade
 import arcade.gui
 from arcade.future.input import Keys, MouseButtons
 from arcade.gui import UIAnchorLayout, UIBoxLayout, UIManager
+from pyglet import gl
 from pyglet.event import EVENT_HANDLE_STATE
 
 from core.gui.button import Button, DynamicTextButton
 from core.gui.projector import ProjectProjector
-from core.service.colors import ProjectColors
 from core.service.object import ProjectMixin
 from simulator.world import World
 
@@ -45,7 +45,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.pressed_keys = set()
         self.mouse_dragged = False
 
-        arcade.set_background_color(ProjectColors.BACKGROUND_LIGHT)
+        arcade.set_background_color(self.settings.WINDOW_BACKGROUND_COLOR)
 
     def set_tps(self, tps: int) -> None:
         self.desired_tps = tps

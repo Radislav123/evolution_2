@@ -3,6 +3,7 @@ import os
 
 from pyglet.math import Vec3
 
+from core.service.colors import ProjectColors
 from core.service.singleton import Singleton
 
 
@@ -10,6 +11,7 @@ class SettingError(ValueError):
     pass
 
 
+# todo: Добавить загрузку настроек из файла (вычисляемые настройки в файл не добавлять)
 class Settings(Singleton):
     def __init__(self) -> None:
         # Настройки логгера
@@ -24,10 +26,11 @@ class Settings(Singleton):
         self.SHADERS = f"shaders"
         self.CPU_COUNT = os.cpu_count()
 
+        self.SHADER_ENCODING = "utf-8"
+
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(256, 256, 256)
-        self.CHUNK_SHAPE = Vec3(32, 32, 32)
+        self.WORLD_SHAPE = Vec3(128, 128, 128)
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
@@ -49,6 +52,7 @@ class Settings(Singleton):
 
         self.WINDOW_WIDTH = 800
         self.WINDOW_HEIGHT = 600
+        self.WINDOW_BACKGROUND_COLOR = ProjectColors.BACKGROUND_LIGHT
 
         self.BUTTON_WIDTH = 230
         self.BUTTON_HEIGHT = 30
@@ -59,6 +63,9 @@ class Settings(Singleton):
         self.MAX_TPS = 1000
 
         self.BUFFER_INDEXES = set()
+        # Рекомендуется
+        self.COMPUTE_SHADER_BLOCK_SHAPE = Vec3(8, 8, 8)
+        self.COMPUTE_SHADER_WORK_GROUPS = self.WORLD_SHAPE // self.COMPUTE_SHADER_BLOCK_SHAPE
 
         self.TEST_COLOR_CUBE = False
         self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
@@ -71,13 +78,17 @@ class Settings(Singleton):
     def check(self) -> None:
         if min(self.WORLD_SHAPE) <= 1:
             raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater than 1")
+        if sum(self.WORLD_SHAPE % self.COMPUTE_SHADER_BLOCK_SHAPE) > 0:
+            raise SettingError(
+                f"WORLD_SHAPE {self.WORLD_SHAPE} must be divisible without remainder into COMPUTE_SHADER_BLOCK_SHAPE {self.COMPUTE_SHADER_BLOCK_SHAPE}"
+            )
 
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")
 
-        # Именно 32, потому что массивы именно такого размера создаются в шейдере
-        if not (0 < self.CELL_SUBSTANCE_COUNT <= 32) or self.CELL_SUBSTANCE_COUNT % 4 != 0:
-            raise SettingError(
-                f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be grater than zero,"
-                f" lower or equal to 32 and a multiple of four"
-            )
+        if self.CELL_SUBSTANCE_COUNT <= 0:
+            raise SettingError(f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be grater than 0")
+        # Потому что мировые данные, как World.substances, передаются по 4 в одной текстуре,
+        # где каждому каналу текстуры соответствует канал в вокселе
+        if self.CELL_SUBSTANCE_COUNT % 4 != 0:
+            raise SettingError(f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be a multiple of 4")

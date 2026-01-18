@@ -1,22 +1,18 @@
 #version 460
 #extension GL_ARB_bindless_texture : require
+#extension GL_ARB_shading_language_include : require
 
-const int max_cell_substance_count = 32;
 
+// Переменные, которые почти не меняются или меняются редко
 uniform vec2 u_window_size;
 uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
 uniform ivec3 u_world_shape;
-uniform int u_connected_texture_count;
 
 uniform vec4 u_background;
-uniform float u_optical_density_scale;
 
-uniform bool u_test_color_cube;
-uniform vec4 u_test_color_cube_start;
-uniform vec4 u_test_color_cube_end;
-
+// Переменные, которые могу меняться каждый кадр
 uniform vec3 u_view_position;
 uniform vec3 u_view_forward;
 uniform vec3 u_view_right;
@@ -26,64 +22,17 @@ uniform float u_zoom;
 uniform sampler1D u_colors;
 uniform sampler1D u_absorption;
 
-layout(std430, binding = 0) buffer Substances {
-    usampler3D u_substances[];
-};
-layout(std430, binding = 1) buffer Quantities {
-    usampler3D u_quantities[];
-};
+layout(std430, binding = 0) readonly restrict buffer Substances {
+    usampler3D handles[];
+} u_substances[2];
+layout(std430, binding = 2) readonly restrict buffer Quantities {
+    usampler3D handles[];
+} u_quantities[2];
 
 out vec4 f_color;
 
 
-vec4 get_voxel_color_test(ivec3 position) {
-    vec4 start = u_test_color_cube_start;
-    vec4 end = u_test_color_cube_end;
-    vec3 rate = vec3(position) / vec3(u_world_shape);
-
-    vec3 rgb = start.rgb * rate + end.rgb * (1 - rate);
-    float alpha = (start.a + end.a) / 2;
-
-    return vec4(rgb, alpha);
-}
-
-
-vec4 get_voxel_color(ivec3 position) {
-    vec3 rgb_squared = vec3(0.0);
-    float optical_depth = 0.0;
-    vec3 rgb = vec3(0.0);
-    float opacity = 0.0;
-
-    for (int texture_index = 0; texture_index < u_connected_texture_count; texture_index++) {
-        uvec4 substances_4 = texelFetch(u_substances[texture_index], position, 0);
-        uvec4 quantities_4 = texelFetch(u_quantities[texture_index], position, 0);
-
-        for (int channel_index = 0; channel_index < 4; channel_index++) {
-            uint substance_id = substances_4[channel_index];
-            uint quantity = quantities_4[channel_index];
-
-            if (substance_id == 0u || quantity == 0u) continue;
-
-            float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
-            vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
-
-            float substance_optical_depth = absorption_rate * float(quantity);
-            optical_depth += substance_optical_depth;
-            rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
-        }
-    }
-
-    if (optical_depth > 0.0) {
-        rgb = sqrt(rgb_squared / optical_depth);
-
-        float absorption = optical_depth * u_optical_density_scale;
-        // Текущий вариант должен быть быстрее, чем с exp(), но пока что этого не видно
-        // opacity = 1.0 - exp(-absorption);
-        opacity = absorption / (1.0 + absorption);
-    }
-
-    return vec4(rgb, opacity);
-}
+#include color_function_path
 
 // performance: Способы ускоение: Метод "Спекулятивного кеширования", Variable Rate Shading (VRS), использование "Битовых масок пустоты", Репроекция (Temporal Reprojection)
 // performance: После разбиения на чанки, можно помечать чанки, в которых ничего не нужно рисовать?
@@ -138,16 +87,13 @@ void main() {
         vec3 step_size = abs(ray_backward);
 
         vec3 next_boundary = (voxel_position - ray_start + max(step_forward, 0.0)) * ray_backward;
-
-        int max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
-        for (int i = 0; i < max_iterations; i++) {
+        uint max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
+        for (uint i = 0; i < max_iterations; i++) {
             // Проверка границ
             if (any(lessThan(voxel_position, world_min))
             || any(greaterThanEqual(voxel_position, world_max))) break;
 
-            vec4 voxel_color = u_test_color_cube ?
-            get_voxel_color_test(ivec3(voxel_position)) :
-            get_voxel_color(ivec3(voxel_position));
+            vec4 voxel_color = get_voxel_color(ivec3(voxel_position));
 
             if (voxel_color.a > 0.01) {
                 float alpha = voxel_color.a * (1.0 - ray_color.a);

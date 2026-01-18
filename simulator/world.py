@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 import arcade
 import numpy as np
 import numpy.typing as npt
-import pyglet
 from arcade.gl import BufferDescription
+from pyglet import gl
 
+from core.service.colors import ProjectColors
+from core.service.functions import load_shader, write_uniforms
 from core.service.object import PhysicalObject, ProjectionObject
 from simulator.substance import Substance
 
@@ -21,6 +23,7 @@ CellIterator = npt.NDArray[np.int32]
 VoxelIterator = CellIterator
 
 OpenGLIds = tuple[ctypes.c_uint, ...]
+OpenGLHandles = npt.NDArray[np.uint64]
 
 
 class WorldProjection(ProjectionObject):
@@ -34,116 +37,128 @@ class WorldProjection(ProjectionObject):
         self.voxel_count = self.world.cell_count
         self.iterator: VoxelIterator = self.world.iterator
 
-        self.program = self.ctx.load_program(
-            vertex_shader = f"{self.settings.SHADERS}/vertex.glsl",
-            fragment_shader = f"{self.settings.SHADERS}/fragment.glsl"
+        self.program = self.ctx.program(
+            vertex_shader = load_shader(f"{self.settings.SHADERS}/projectional/vertex.glsl"),
+            fragment_shader = load_shader(
+                f"{self.settings.SHADERS}/projectional/fragment.glsl",
+                {
+                    "color_function_path": (
+                        f"{self.settings.SHADERS}/projectional/functions/get_voxel_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
+                        {}
+                    )
+                }
+            )
         )
 
         self.init_color_texture()
         self.init_absorption_texture()
 
-        self.program["u_window_size"] = self.window.size
-        self.program["u_fov_scale"] = self.window.projector.projection.fov_scale
-        self.program["u_near"] = self.window.projector.projection.near
-        self.program["u_far"] = self.window.projector.projection.far
-        self.program["u_world_shape"] = self.world.shape
-        self.program["u_connected_texture_count"] = self.settings.CONNECTED_TEXTURE_COUNT
+        uniforms = {
+            "u_window_size": (self.window.size, True, True),
+            "u_fov_scale": (self.window.projector.projection.fov_scale, True, True),
+            "u_near": (self.window.projector.projection.near, True, True),
+            "u_far": (self.window.projector.projection.far, True, True),
+            "u_world_shape": (self.world.shape, True, True),
+            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, False, False),
 
-        # noinspection PyTypeChecker
-        self.program["u_background"] = tuple(component / 255 for component in self.window.background_color)
-        self.program["u_optical_density_scale"] = self.settings.OPTICAL_DENSITY_SCALE
+            "u_background": (ProjectColors.to_opengl(self.settings.WINDOW_BACKGROUND_COLOR), True, True),
+            "u_optical_density_scale": (self.settings.OPTICAL_DENSITY_SCALE, False, False),
 
-        self.program["u_test_color_cube"] = self.settings.TEST_COLOR_CUBE
-        self.program["u_test_color_cube_start"] = self.settings.TEST_COLOR_CUBE_START
-        self.program["u_test_color_cube_end"] = self.settings.TEST_COLOR_CUBE_END
+            "u_test_color_cube_start": (self.settings.TEST_COLOR_CUBE_START, False, False),
+            "u_test_color_cube_end": (self.settings.TEST_COLOR_CUBE_END, False, False)
+        }
+        write_uniforms(self.program, uniforms)
 
         self.scene = arcade.gl.geometry.quad_2d_fs()
-
         self.need_update = True
 
     def init_color_texture(self) -> None:
-        texture_id = pyglet.gl.GLuint()
-        pyglet.gl.glGenTextures(1, texture_id)
-        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE0)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, texture_id)
+        texture_id = gl.GLuint()
+        gl.glGenTextures(1, texture_id)
+        gl.glActiveTexture(gl.GL_TEXTURE0)
+        gl.glBindTexture(gl.GL_TEXTURE_1D, texture_id)
 
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
 
-        pyglet.gl.glTexStorage1D(
-            pyglet.gl.GL_TEXTURE_1D,
+        gl.glTexStorage1D(
+            gl.GL_TEXTURE_1D,
             1,
-            pyglet.gl.GL_RGBA8,
+            gl.GL_RGBA8,
             Substance.colors.size
         )
-        pyglet.gl.glTextureSubImage1D(
+        gl.glTextureSubImage1D(
             texture_id,
             0,
             0,
             Substance.colors.size,
-            pyglet.gl.GL_RGBA,
-            pyglet.gl.GL_UNSIGNED_BYTE,
+            gl.GL_RGBA,
+            gl.GL_UNSIGNED_BYTE,
             Substance.colors.ctypes.data
         )
-        self.program["u_colors"] = 0
+
+        self.program.set_uniform_safe("u_colors", 0)
 
     def init_absorption_texture(self) -> None:
-        texture_id = pyglet.gl.GLuint()
-        pyglet.gl.glGenTextures(1, texture_id)
-        pyglet.gl.glActiveTexture(pyglet.gl.GL_TEXTURE1)
-        pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_1D, texture_id)
+        texture_id = gl.GLuint()
+        gl.glGenTextures(1, texture_id)
+        gl.glActiveTexture(gl.GL_TEXTURE1)
+        gl.glBindTexture(gl.GL_TEXTURE_1D, texture_id)
 
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glTexParameteri(pyglet.gl.GL_TEXTURE_1D, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
 
-        pyglet.gl.glTexStorage1D(
-            pyglet.gl.GL_TEXTURE_1D,
+        gl.glTexStorage1D(
+            gl.GL_TEXTURE_1D,
             1,
-            pyglet.gl.GL_R32F,
+            gl.GL_R32F,
             Substance.absorptions.size
         )
-        pyglet.gl.glTextureSubImage1D(
+        gl.glTextureSubImage1D(
             texture_id,
             0,
             0,
             Substance.absorptions.size,
-            pyglet.gl.GL_RED,
-            pyglet.gl.GL_FLOAT,
+            gl.GL_RED,
+            gl.GL_FLOAT,
             Substance.absorptions.ctypes.data
         )
-        self.program["u_absorption"] = 1
+
+        self.program.set_uniform_safe("u_absorption", 1)
 
     def start(self) -> None:
         pass
 
     def on_draw(self, draw_voxels: bool) -> None:
         if draw_voxels:
+            # performance: обновлять переменные через буфер (записывать их в буфер)
             self.program["u_view_position"] = self.window.projector.view.position
             self.program["u_view_forward"] = self.window.projector.view.forward
             self.program["u_view_right"] = self.window.projector.view.right
             self.program["u_view_up"] = self.window.projector.view.up
             self.program["u_zoom"] = self.window.projector.view.zoom
 
-            # todo: Перед отрисовкой ставить барьер pyglet.gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)?
+            gl.glMemoryBarrier(gl.GL_TEXTURE_FETCH_BARRIER_BIT)
             self.scene.render(self.program)
 
 
 class World(PhysicalObject):
     def __init__(self, window: "ProjectWindow") -> None:
         super().__init__()
+        self.seed = self.settings.WORLD_SEED
+        if self.seed is None:
+            self.seed = datetime.datetime.now().timestamp()
+        random.seed(self.seed)
+        self.age = 0
+
         self.window = window
         self.ctx = self.window.ctx
 
         self.shape = self.settings.WORLD_SHAPE
         self.width, self.length, self.height = self.shape
-        assert self.width > 0 and self.length > 0 and self.height > 0, "World width, length and height must be greater then zero"
-
-        self.center_x = -(self.width // 2)
-        self.center_y = -(self.length // 2)
-        self.center_z = -(self.height // 2)
-        self.center = (self.center_x, self.center_y, self.center_z)
+        self.center = self.shape // 2
 
         self.iterator: CellIterator = np.stack(
             np.indices(self.shape[::-1])[::-1],
@@ -155,19 +170,31 @@ class World(PhysicalObject):
         self.substances = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
         self.quantities = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
 
-        self.set_texture_settings()
-        self.substance_texture_ids = self.init_textures(0)
-        self.quantity_texture_ids = self.init_textures(1)
-        self.data = (
-            (self.substance_texture_ids, self.substances),
-            (self.quantity_texture_ids, self.quantities)
+        self.compute_shader = self.ctx.compute_shader(
+            source = load_shader(
+                f"{self.settings.SHADERS}/physical/compute.glsl",
+                None,
+                {
+                    "block_size_x": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.x,
+                    "block_size_y": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.y,
+                    "block_size_z": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.z
+                }
+            )
         )
 
-        self.seed = self.settings.WORLD_SEED
-        if self.seed is None:
-            self.seed = datetime.datetime.now().timestamp()
-        random.seed(self.seed)
-        self.age = 0
+        self.set_texture_settings()
+        self.data = (
+            # ((texture_ids, handles_read_buffer_id, handles_write_buffer_id), (texture_ids, handles_read_buffer_id, handles_write_buffer_id), data)
+            (self.init_textures(), self.init_textures(), self.substances),
+            (self.init_textures(), self.init_textures(), self.quantities)
+        )
+        self.bind_textures()
+
+        uniforms = {
+            "u_world_shape": (self.shape, True, True),
+            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, True, True)
+        }
+        write_uniforms(self.compute_shader, uniforms)
 
         self.thread_executor = ThreadPoolExecutor(self.settings.CPU_COUNT)
         self.prepare()
@@ -181,58 +208,69 @@ class World(PhysicalObject):
         #  Убрать его, но выровнять все передаваемые текстуры по 4 байта?
         #  Перед тем как удалить его из кода, убедиться в том,
         #  что это действительно положительно влияет на производительность.
-        pyglet.gl.glPixelStorei(pyglet.gl.GL_UNPACK_ALIGNMENT, 1)
+        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
 
     # todo: объединить с WorldProjection.init_world_textures
     #  (возможно, создав отдельный класс, для работы с opengl, и включив туда и другие связанные функции)
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
-    def init_textures(self, buffer_index: int) -> OpenGLIds:
-        assert buffer_index not in self.settings.BUFFER_INDEXES, f"This index ({buffer_index}) already is in usage"
-        self.settings.BUFFER_INDEXES.add(buffer_index)
-        texture_count = self.settings.CONNECTED_TEXTURE_COUNT * 2
-        handles = np.zeros(texture_count, dtype = np.uint64)
+    def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint]:
+        read_handles = np.zeros(self.settings.CONNECTED_TEXTURE_COUNT, dtype = np.uint64)
+        write_handles = np.zeros(self.settings.CONNECTED_TEXTURE_COUNT, dtype = np.uint64)
 
-        sampler_id = pyglet.gl.GLuint()
-        pyglet.gl.glGenSamplers(1, sampler_id)
+        sampler_id = gl.GLuint()
+        gl.glGenSamplers(1, sampler_id)
 
-        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_MIN_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_MAG_FILTER, pyglet.gl.GL_NEAREST)
-        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_S, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_T, pyglet.gl.GL_CLAMP_TO_EDGE)
-        pyglet.gl.glSamplerParameteri(sampler_id, pyglet.gl.GL_TEXTURE_WRAP_R, pyglet.gl.GL_CLAMP_TO_EDGE)
+        gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+        gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+        gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_R, gl.GL_CLAMP_TO_EDGE)
 
-        texture_ids = (pyglet.gl.GLuint * texture_count)()
-        pyglet.gl.glGenTextures(texture_count, texture_ids)
+        texture_ids = (gl.GLuint * self.settings.CONNECTED_TEXTURE_COUNT)()
+        gl.glGenTextures(self.settings.CONNECTED_TEXTURE_COUNT, texture_ids)
 
-        for index in range(texture_count):
+        for index in range(self.settings.CONNECTED_TEXTURE_COUNT):
             texture_id = texture_ids[index]
-            pyglet.gl.glBindTexture(pyglet.gl.GL_TEXTURE_3D, texture_id)
+            gl.glBindTexture(gl.GL_TEXTURE_3D, texture_id)
 
-            pyglet.gl.glTexStorage3D(
-                pyglet.gl.GL_TEXTURE_3D,
+            gl.glTexStorage3D(
+                gl.GL_TEXTURE_3D,
                 1,
-                pyglet.gl.GL_RGBA16UI,
+                gl.GL_RGBA16UI,
                 self.width,
                 self.length,
                 self.height
             )
-            handle = pyglet.gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
-            pyglet.gl.glMakeTextureHandleResidentARB(ctypes.c_uint64(handle))
-            handles[index] = handle
+            read_handle = gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
+            gl.glMakeTextureHandleResidentARB(read_handle)
+            read_handles[index] = read_handle
 
-        buffer_id = pyglet.gl.GLuint()
-        pyglet.gl.glGenBuffers(1, buffer_id)
-        pyglet.gl.glBindBuffer(pyglet.gl.GL_SHADER_STORAGE_BUFFER, buffer_id)
+            write_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA16UI)
+            # Возможно, потребуется заменить GL_WRITE_ONLY на GL_READ_WRITE
+            gl.glMakeImageHandleResidentARB(write_handle, gl.GL_WRITE_ONLY)
+            write_handles[index] = write_handle
 
-        pyglet.gl.glBufferData(
-            pyglet.gl.GL_SHADER_STORAGE_BUFFER,
-            handles.nbytes,
-            handles.ctypes.data,
-            pyglet.gl.GL_DYNAMIC_DRAW
+        read_buffer_id = gl.GLuint()
+        gl.glGenBuffers(1, read_buffer_id)
+        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, read_buffer_id)
+        gl.glBufferData(
+            gl.GL_SHADER_STORAGE_BUFFER,
+            read_handles.nbytes,
+            read_handles.ctypes.data,
+            gl.GL_STREAM_DRAW
         )
-        pyglet.gl.glBindBufferBase(pyglet.gl.GL_SHADER_STORAGE_BUFFER, buffer_index, buffer_id)
 
-        return tuple(texture_ids)
+        write_buffer_id = gl.GLuint()
+        gl.glGenBuffers(1, write_buffer_id)
+        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, write_buffer_id)
+        gl.glBufferData(
+            gl.GL_SHADER_STORAGE_BUFFER,
+            write_handles.nbytes,
+            write_handles.ctypes.data,
+            gl.GL_STREAM_DRAW
+        )
+
+        return tuple(texture_ids), read_buffer_id, write_buffer_id
 
     def prepare(self) -> None:
         self.generate_materials()
@@ -245,13 +283,18 @@ class World(PhysicalObject):
 
     # performance: Писать данные через прокладку в виде Pixel Buffer Object (PBO)?
     def write_textures(self) -> None:
-        for texture_ids, data in self.data:
+        for (texture_ids_0, _, _), (texture_ids_1, _, _), data in self.data:
+            if self.age % 2 == 0:
+                write_ids = texture_ids_0
+            else:
+                write_ids = texture_ids_1
+
             for index in range(self.settings.CONNECTED_TEXTURE_COUNT):
                 start = index * 4
                 end = (index + 1) * 4
 
-                pyglet.gl.glTextureSubImage3D(
-                    texture_ids[index * 2 + self.age % 2],
+                gl.glTextureSubImage3D(
+                    write_ids[index],
                     0,
                     0,
                     0,
@@ -259,27 +302,53 @@ class World(PhysicalObject):
                     self.width,
                     self.length,
                     self.height,
-                    pyglet.gl.GL_RGBA_INTEGER,
-                    pyglet.gl.GL_UNSIGNED_SHORT,
+                    gl.GL_RGBA_INTEGER,
+                    gl.GL_UNSIGNED_SHORT,
                     np.ascontiguousarray(data[..., start:end]).ctypes.data
                 )
 
         self.textures_writen = True
 
+    def bind_textures(self) -> None:
+        for index, ((_, buffer_read_id_0, buffer_write_id_0), (_, buffer_read_id_1, buffer_write_id_1), _) \
+                in enumerate(self.data):
+            if self.age % 2 == 0:
+                read_buffer_id = buffer_read_id_0
+                write_buffer_id = buffer_write_id_1
+            else:
+                read_buffer_id = buffer_read_id_1
+                write_buffer_id = buffer_write_id_0
+
+            gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, index * 2 + 0, read_buffer_id)
+            gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, index * 2 + 1, write_buffer_id)
+
+        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, 0)
+
+    def compute_creatures(self) -> None:
+        pass
+
     # todo: Добавить зацикливание мира по xy
     # performance: Numba @njit(parallel=True)
     # performance: У numpy есть where, возможно он поможет не обновлять весь мир разом, а только активные ячейки
     def on_update(self, delta_time: int) -> None:
-        if not self.textures_writen:
-            self.write_textures()
-
         futures = []
         for _ in []:
             futures.extend()
         for future in as_completed(futures):
             # это нужно для проброса исключения из потока
             future.result()
+
+        if not self.textures_writen:
+            self.write_textures()
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+        self.compute_creatures()
+
+        self.compute_shader["u_world_age"] = self.age
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+        self.compute_shader.run(*self.settings.COMPUTE_SHADER_WORK_GROUPS)
+
         self.age += delta_time
+        self.bind_textures()
 
     # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.
     def generate_materials(self) -> None:
