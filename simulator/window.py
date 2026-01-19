@@ -98,6 +98,9 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
         self.start_interface()
 
+        # Для ожидания записи в буферы
+        gl.glMemoryBarrier(gl.GL_SHADER_STORAGE_BARRIER_BIT)
+
     def stop(self) -> None:
         if self.world is not None:
             self.world.stop()

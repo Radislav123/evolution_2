@@ -140,7 +140,8 @@ class WorldProjection(ProjectionObject):
             self.program["u_view_up"] = self.window.projector.view.up
             self.program["u_zoom"] = self.window.projector.view.zoom
 
-            gl.glMemoryBarrier(gl.GL_TEXTURE_FETCH_BARRIER_BIT)
+            # Поставить, если будет неправильное отображение
+            # gl.glMemoryBarrier(gl.GL_TEXTURE_FETCH_BARRIER_BIT)
             self.scene.render(self.program)
 
 
@@ -188,6 +189,9 @@ class World(PhysicalObject):
             (self.init_textures(), self.init_textures(), self.substances),
             (self.init_textures(), self.init_textures(), self.quantities)
         )
+        # True - нулевая для чтения, первая для записи
+        # False - первая для чтения, нулевая для записи
+        self.texture_state = True
         self.bind_textures()
 
         uniforms = {
@@ -284,10 +288,10 @@ class World(PhysicalObject):
     # performance: Писать данные через прокладку в виде Pixel Buffer Object (PBO)?
     def write_textures(self) -> None:
         for (texture_ids_0, _, _), (texture_ids_1, _, _), data in self.data:
-            if self.age % 2 == 0:
-                write_ids = texture_ids_0
-            else:
+            if self.texture_state:
                 write_ids = texture_ids_1
+            else:
+                write_ids = texture_ids_0
 
             for index in range(self.settings.CONNECTED_TEXTURE_COUNT):
                 start = index * 4
@@ -312,7 +316,7 @@ class World(PhysicalObject):
     def bind_textures(self) -> None:
         for index, ((_, buffer_read_id_0, buffer_write_id_0), (_, buffer_read_id_1, buffer_write_id_1), _) \
                 in enumerate(self.data):
-            if self.age % 2 == 0:
+            if self.texture_state:
                 read_buffer_id = buffer_read_id_0
                 write_buffer_id = buffer_write_id_1
             else:
@@ -323,6 +327,7 @@ class World(PhysicalObject):
             gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, index * 2 + 1, write_buffer_id)
 
         gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, 0)
+        self.texture_state = not self.texture_state
 
     def compute_creatures(self) -> None:
         pass
@@ -340,11 +345,12 @@ class World(PhysicalObject):
 
         if not self.textures_writen:
             self.write_textures()
-        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+        self.compute_shader["u_world_age"] = self.age
+
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         self.compute_creatures()
 
-        self.compute_shader["u_world_age"] = self.age
-        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         self.compute_shader.run(*self.settings.COMPUTE_SHADER_WORK_GROUPS)
 
         self.age += delta_time
