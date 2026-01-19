@@ -195,8 +195,10 @@ class World(PhysicalObject):
         self.bind_textures()
 
         uniforms = {
+            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, True, True),
+
             "u_world_shape": (self.shape, True, True),
-            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, True, True)
+            "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
         }
         write_uniforms(self.compute_shader, uniforms)
 
@@ -214,8 +216,6 @@ class World(PhysicalObject):
         #  что это действительно положительно влияет на производительность.
         gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
 
-    # todo: объединить с WorldProjection.init_world_textures
-    #  (возможно, создав отдельный класс, для работы с opengl, и включив туда и другие связанные функции)
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
     def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint]:
         read_handles = np.zeros(self.settings.CONNECTED_TEXTURE_COUNT, dtype = np.uint64)
@@ -351,6 +351,8 @@ class World(PhysicalObject):
         self.compute_creatures()
 
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
+        # todo: заменить run (и render в projection) на самостоятельный вызов opengl,
+        #  чтобы самостоятельно управлять барьерами
         self.compute_shader.run(*self.settings.COMPUTE_SHADER_WORK_GROUPS)
 
         self.age += delta_time
@@ -387,6 +389,6 @@ class World(PhysicalObject):
         )
         substance_ids = np.select(
             conditions,
-            Substance.indexes[:5]
+            Substance.indexes[1:6]
         )
         self.substances[mask, 0] = substance_ids[mask]

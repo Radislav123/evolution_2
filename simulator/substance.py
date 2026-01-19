@@ -39,6 +39,14 @@ class Substance:
         )
 
 
+# Не должен использоваться в расчетах, должен лишь служить как маркер отсутствия вещества, коим и является
+# Должен быть единственным не генерируемым, а заданным веществом
+class Vacuum(Substance):
+    mass = 0
+    absorption = 0
+    color = (0, 0, 0, 0)
+
+
 # todo: Remove it and all subclasses
 class TestSubstance(Substance):
     test = True

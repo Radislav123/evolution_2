@@ -3,11 +3,13 @@
 
 
 // Переменные, которые почти не меняются или меняются редко
-uniform ivec3 u_world_shape;
 uniform uint u_connected_texture_count;
 
+uniform ivec3 u_world_shape;
+uniform vec3 u_gravity_vector;
+
 // Переменные, которые могу меняться каждый кадр
-// При tps == 1000 uint32 хватит примерно на 49.7 суток симуляции
+// При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции
 uniform uint u_world_age;
 
 
@@ -17,7 +19,6 @@ layout(std430, binding = 0) readonly restrict buffer SubstancesRead {
     usampler3D handles[];
 } u_substances_read;
 layout(std430, binding = 1) writeonly restrict buffer SubstancesWrite {
-//    layout(rgba16ui) uimage3D handles[];
     uimage3D handles[];
 } u_substances_write;
 
@@ -25,7 +26,6 @@ layout(std430, binding = 2) readonly restrict buffer QuanititesRead {
     usampler3D handles[];
 } u_quanitites_read;
 layout(std430, binding = 3) writeonly restrict buffer QuanititesWrite {
-//    layout(rgba16ui) uimage3D handles[];
     uimage3D handles[];
 } u_quanitites_write;
 
@@ -35,7 +35,7 @@ void main() {
 
     bool move = true;
     if (move && u_world_age % 50 == 0) {
-        write_position = (write_position + ivec3(1, 1, 1)) % u_world_shape;
+        write_position = (write_position + ivec3(u_gravity_vector)) % u_world_shape;
     }
 
     for (uint texture_index = 0u; texture_index < u_connected_texture_count; texture_index++) {

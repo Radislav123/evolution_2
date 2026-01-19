@@ -1,6 +1,16 @@
 uniform uint u_connected_texture_count;
 uniform float u_optical_density_scale;
 
+uniform sampler1D u_colors;
+uniform sampler1D u_absorption;
+
+layout(std430, binding = 0) readonly restrict buffer Substances {
+    usampler3D handles[];
+} u_substances[2];
+layout(std430, binding = 2) readonly restrict buffer Quantities {
+    usampler3D handles[];
+} u_quantities[2];
+
 
 vec4 get_voxel_color(ivec3 position) {
     vec3 rgb_squared = vec3(0.0);
@@ -13,9 +23,9 @@ vec4 get_voxel_color(ivec3 position) {
         uvec4 quantities_4 = texelFetch(u_quantities[0].handles[texture_index], position, 0);
 
         for (uint channel_index = 0u; channel_index < 4u; channel_index++) {
-            uint quantity = quantities_4[channel_index];
-            if (quantity == 0u) continue;
             uint substance_id = substances_4[channel_index];
+            uint quantity = quantities_4[channel_index];
+            if (substance_id == 0U || quantity == 0u) continue;
 
             float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
             vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;

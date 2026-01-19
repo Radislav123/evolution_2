@@ -19,16 +19,6 @@ uniform vec3 u_view_right;
 uniform vec3 u_view_up;
 uniform float u_zoom;
 
-uniform sampler1D u_colors;
-uniform sampler1D u_absorption;
-
-layout(std430, binding = 0) readonly restrict buffer Substances {
-    usampler3D handles[];
-} u_substances[2];
-layout(std430, binding = 2) readonly restrict buffer Quantities {
-    usampler3D handles[];
-} u_quantities[2];
-
 out vec4 f_color;
 
 

@@ -31,11 +31,11 @@ class Settings(Singleton):
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
         self.WORLD_SHAPE = Vec3(128, 128, 128)
+        self.CELL_SUBSTANCE_COUNT = 4
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
-        self.CELL_SUBSTANCE_COUNT = 4
-        self.CONNECTED_TEXTURE_COUNT = self.CELL_SUBSTANCE_COUNT // 4
+        self.GRAVITY_VECTOR = Vec3(1, 1, 1)
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
@@ -66,6 +66,7 @@ class Settings(Singleton):
         # Рекомендуется
         self.COMPUTE_SHADER_BLOCK_SHAPE = Vec3(8, 8, 8)
         self.COMPUTE_SHADER_WORK_GROUPS = self.WORLD_SHAPE // self.COMPUTE_SHADER_BLOCK_SHAPE
+        self.CONNECTED_TEXTURE_COUNT = self.CELL_SUBSTANCE_COUNT // 4
 
         self.TEST_COLOR_CUBE = False
         self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
