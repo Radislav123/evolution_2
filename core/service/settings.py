@@ -66,7 +66,6 @@ class Settings(Singleton):
         # Рекомендуется
         self.COMPUTE_SHADER_BLOCK_SHAPE = Vec3(8, 8, 8)
         self.COMPUTE_SHADER_WORK_GROUPS = self.WORLD_SHAPE // self.COMPUTE_SHADER_BLOCK_SHAPE
-        self.CONNECTED_TEXTURE_COUNT = self.CELL_SUBSTANCE_COUNT // 4
 
         self.TEST_COLOR_CUBE = False
         self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
@@ -89,7 +88,3 @@ class Settings(Singleton):
 
         if self.CELL_SUBSTANCE_COUNT <= 0:
             raise SettingError(f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be grater than 0")
-        # Потому что мировые данные, как World.substances, передаются по 4 в одной текстуре,
-        # где каждому каналу текстуры соответствует канал в вокселе
-        if self.CELL_SUBSTANCE_COUNT % 4 != 0:
-            raise SettingError(f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be a multiple of 4")

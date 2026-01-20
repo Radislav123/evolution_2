@@ -59,7 +59,7 @@ class WorldProjection(ProjectionObject):
             "u_near": (self.window.projector.projection.near, True, True),
             "u_far": (self.window.projector.projection.far, True, True),
             "u_world_shape": (self.world.shape, True, True),
-            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, False, False),
+            "u_cell_substance_count": (self.settings.CELL_SUBSTANCE_COUNT, False, False),
 
             "u_background": (ProjectColors.to_opengl(self.settings.WINDOW_BACKGROUND_COLOR), True, True),
             "u_optical_density_scale": (self.settings.OPTICAL_DENSITY_SCALE, False, False),
@@ -168,6 +168,7 @@ class World(PhysicalObject):
         ).reshape(-1, 3)
 
         self.cell_count = self.width * self.length * self.height
+        # todo: Генерировать мир тоже на gpu
         self.substances = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
         self.quantities = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
 
@@ -184,18 +185,15 @@ class World(PhysicalObject):
         )
 
         self.set_texture_settings()
-        self.data = (
-            # ((texture_ids, handles_read_buffer_id, handles_write_buffer_id), (texture_ids, handles_read_buffer_id, handles_write_buffer_id), data)
-            (self.init_textures(), self.init_textures(), self.substances),
-            (self.init_textures(), self.init_textures(), self.quantities)
-        )
+        # ((texture_ids, handles_read_buffer_id, handles_write_buffer_id), (texture_ids, handles_read_buffer_id, handles_write_buffer_id))
+        self.texture_infos = (self.init_textures(), self.init_textures())
         # True - нулевая для чтения, первая для записи
         # False - первая для чтения, нулевая для записи
         self.texture_state = True
         self.bind_textures()
 
         uniforms = {
-            "u_connected_texture_count": (self.settings.CONNECTED_TEXTURE_COUNT, True, True),
+            "u_cell_substance_count": (self.settings.CELL_SUBSTANCE_COUNT, True, True),
 
             "u_world_shape": (self.shape, True, True),
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
@@ -218,8 +216,8 @@ class World(PhysicalObject):
 
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
     def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint]:
-        read_handles = np.zeros(self.settings.CONNECTED_TEXTURE_COUNT, dtype = np.uint64)
-        write_handles = np.zeros(self.settings.CONNECTED_TEXTURE_COUNT, dtype = np.uint64)
+        read_handles = np.zeros(self.settings.CELL_SUBSTANCE_COUNT, dtype = np.uint64)
+        write_handles = np.zeros(self.settings.CELL_SUBSTANCE_COUNT, dtype = np.uint64)
 
         sampler_id = gl.GLuint()
         gl.glGenSamplers(1, sampler_id)
@@ -230,17 +228,17 @@ class World(PhysicalObject):
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_R, gl.GL_CLAMP_TO_EDGE)
 
-        texture_ids = (gl.GLuint * self.settings.CONNECTED_TEXTURE_COUNT)()
-        gl.glGenTextures(self.settings.CONNECTED_TEXTURE_COUNT, texture_ids)
+        texture_ids = (gl.GLuint * self.settings.CELL_SUBSTANCE_COUNT)()
+        gl.glGenTextures(self.settings.CELL_SUBSTANCE_COUNT, texture_ids)
 
-        for index in range(self.settings.CONNECTED_TEXTURE_COUNT):
+        for index in range(self.settings.CELL_SUBSTANCE_COUNT):
             texture_id = texture_ids[index]
             gl.glBindTexture(gl.GL_TEXTURE_3D, texture_id)
 
             gl.glTexStorage3D(
                 gl.GL_TEXTURE_3D,
                 1,
-                gl.GL_RGBA16UI,
+                gl.GL_RGBA32UI,
                 self.width,
                 self.length,
                 self.height
@@ -249,7 +247,7 @@ class World(PhysicalObject):
             gl.glMakeTextureHandleResidentARB(read_handle)
             read_handles[index] = read_handle
 
-            write_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA16UI)
+            write_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA32UI)
             # Возможно, потребуется заменить GL_WRITE_ONLY на GL_READ_WRITE
             gl.glMakeImageHandleResidentARB(write_handle, gl.GL_WRITE_ONLY)
             write_handles[index] = write_handle
@@ -287,44 +285,43 @@ class World(PhysicalObject):
 
     # performance: Писать данные через прокладку в виде Pixel Buffer Object (PBO)?
     def write_textures(self) -> None:
-        for (texture_ids_0, _, _), (texture_ids_1, _, _), data in self.data:
-            if self.texture_state:
-                write_ids = texture_ids_1
-            else:
-                write_ids = texture_ids_0
+        if self.texture_state:
+            write_ids = self.texture_infos[1][0]
+        else:
+            write_ids = self.texture_infos[0][0]
 
-            for index in range(self.settings.CONNECTED_TEXTURE_COUNT):
-                start = index * 4
-                end = (index + 1) * 4
+        for index in range(self.settings.CELL_SUBSTANCE_COUNT):
+            packed_world = np.empty((self.height, self.length, self.width, 4), dtype = np.uint32)
+            # todo: Добавить проверку (assert), что веществ меньше чем 2**15
+            # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**15
+            packed_world[..., 0] = self.substances[..., index].astype(np.uint32) | (self.quantities[..., index].astype(np.uint32) << 15)
 
-                gl.glTextureSubImage3D(
-                    write_ids[index],
-                    0,
-                    0,
-                    0,
-                    0,
-                    self.width,
-                    self.length,
-                    self.height,
-                    gl.GL_RGBA_INTEGER,
-                    gl.GL_UNSIGNED_SHORT,
-                    np.ascontiguousarray(data[..., start:end]).ctypes.data
-                )
+            gl.glTextureSubImage3D(
+                write_ids[index],
+                0,
+                0,
+                0,
+                0,
+                self.width,
+                self.length,
+                self.height,
+                gl.GL_RGBA_INTEGER,
+                gl.GL_UNSIGNED_INT,
+                packed_world.ctypes.data
+            )
 
         self.textures_writen = True
 
     def bind_textures(self) -> None:
-        for index, ((_, buffer_read_id_0, buffer_write_id_0), (_, buffer_read_id_1, buffer_write_id_1), _) \
-                in enumerate(self.data):
-            if self.texture_state:
-                read_buffer_id = buffer_read_id_0
-                write_buffer_id = buffer_write_id_1
-            else:
-                read_buffer_id = buffer_read_id_1
-                write_buffer_id = buffer_write_id_0
+        if self.texture_state:
+            read_buffer_id = self.texture_infos[0][1]
+            write_buffer_id = self.texture_infos[1][2]
+        else:
+            read_buffer_id = self.texture_infos[1][1]
+            write_buffer_id = self.texture_infos[0][2]
 
-            gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, index * 2 + 0, read_buffer_id)
-            gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, index * 2 + 1, write_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 0, read_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 1, write_buffer_id)
 
         gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, 0)
         self.texture_state = not self.texture_state

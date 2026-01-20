@@ -3,7 +3,7 @@
 
 
 // Переменные, которые почти не меняются или меняются редко
-uniform uint u_connected_texture_count;
+uniform uint u_cell_substance_count;
 
 uniform ivec3 u_world_shape;
 uniform vec3 u_gravity_vector;
@@ -15,19 +15,13 @@ uniform uint u_world_age;
 
 layout(local_size_x = block_size_x, local_size_y = block_size_y, local_size_z = block_size_z) in;
 
-layout(std430, binding = 0) readonly restrict buffer SubstancesRead {
+layout(std430, binding = 0) readonly restrict buffer WorldRead {
     usampler3D handles[];
-} u_substances_read;
-layout(std430, binding = 1) writeonly restrict buffer SubstancesWrite {
+} u_world_read;
+layout(std430, binding = 1) writeonly restrict buffer WorldWrite {
     uimage3D handles[];
-} u_substances_write;
+} u_world_write;
 
-layout(std430, binding = 2) readonly restrict buffer QuanititesRead {
-    usampler3D handles[];
-} u_quanitites_read;
-layout(std430, binding = 3) writeonly restrict buffer QuanititesWrite {
-    uimage3D handles[];
-} u_quanitites_write;
 
 void main() {
     ivec3 read_position = ivec3(gl_GlobalInvocationID);
@@ -38,11 +32,11 @@ void main() {
         write_position = (write_position + ivec3(u_gravity_vector)) % u_world_shape;
     }
 
-    for (uint texture_index = 0u; texture_index < u_connected_texture_count; texture_index++) {
-        uvec4 substances_4 = texelFetch(u_substances_read.handles[texture_index], read_position, 0);
-        uvec4 quantities_4 = texelFetch(u_quanitites_read.handles[texture_index], read_position, 0);
+    bool next_layer_filled = true;
+    for (uint layer_index = 0u; layer_index < u_cell_substance_count && next_layer_filled; layer_index++) {
+        uvec4 packed_layer = texelFetch(u_world_read.handles[layer_index], read_position, 0);
+        next_layer_filled = bool(bitfieldExtract(packed_layer.r, 30, 1));
 
-        imageStore(u_substances_write.handles[texture_index], write_position, substances_4);
-        imageStore(u_quanitites_write.handles[texture_index], write_position, quantities_4);
+        imageStore(u_world_write.handles[layer_index], write_position, packed_layer);
     }
 }

@@ -1,15 +1,12 @@
-uniform uint u_connected_texture_count;
+uniform uint u_cell_substance_count;
 uniform float u_optical_density_scale;
 
 uniform sampler1D u_colors;
 uniform sampler1D u_absorption;
 
-layout(std430, binding = 0) readonly restrict buffer Substances {
+layout(std430, binding = 0) readonly restrict buffer World {
     usampler3D handles[];
-} u_substances[2];
-layout(std430, binding = 2) readonly restrict buffer Quantities {
-    usampler3D handles[];
-} u_quantities[2];
+} u_world[2];
 
 
 vec4 get_voxel_color(ivec3 position) {
@@ -18,22 +15,23 @@ vec4 get_voxel_color(ivec3 position) {
     vec3 rgb = vec3(0.0);
     float opacity = 0.0;
 
-    for (uint texture_index = 0u; texture_index < u_connected_texture_count; texture_index++) {
-        uvec4 substances_4 = texelFetch(u_substances[0].handles[texture_index], position, 0);
-        uvec4 quantities_4 = texelFetch(u_quantities[0].handles[texture_index], position, 0);
+    bool next_layer_filled = true;
+    for (uint layer_index = 0u; layer_index < u_cell_substance_count && next_layer_filled; layer_index++) {
+        // u_world[0] - текстура для чтения
+        // u_world[1] - текстура для записи, которая в данном шейдере не используется
+        uvec4 packed_layer = texelFetch(u_world[0].handles[layer_index], position, 0);
 
-        for (uint channel_index = 0u; channel_index < 4u; channel_index++) {
-            uint substance_id = substances_4[channel_index];
-            uint quantity = quantities_4[channel_index];
-            if (substance_id == 0U || quantity == 0u) continue;
+        uint substance_id = bitfieldExtract(packed_layer.r, 0, 15);
+        uint quantity = bitfieldExtract(packed_layer.r, 15, 15);
+        next_layer_filled = bool(bitfieldExtract(packed_layer.r, 30, 1));
+        if (substance_id == 0U || quantity == 0u) continue;
 
-            float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
-            vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
+        float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
+        vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
 
-            float substance_optical_depth = absorption_rate * float(quantity);
-            optical_depth += substance_optical_depth;
-            rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
-        }
+        float substance_optical_depth = absorption_rate * float(quantity);
+        optical_depth += substance_optical_depth;
+        rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
     }
 
     if (optical_depth > 0.0) {
