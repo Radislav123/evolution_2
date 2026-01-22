@@ -194,6 +194,7 @@ class World(PhysicalObject):
 
         uniforms = {
             "u_cell_substance_count": (self.settings.CELL_SUBSTANCE_COUNT, True, True),
+            "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, True, True),
 
             "u_world_shape": (self.shape, True, True),
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
@@ -294,7 +295,12 @@ class World(PhysicalObject):
             packed_world = np.empty((self.height, self.length, self.width, 4), dtype = np.uint32)
             # todo: Добавить проверку (assert), что веществ меньше чем 2**15
             # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**15
-            packed_world[..., 0] = self.substances[..., index].astype(np.uint32) | (self.quantities[..., index].astype(np.uint32) << 15)
+            packed_world[..., 0] = (self.substances[..., index].astype(np.uint32)
+                                    | (self.quantities[..., index].astype(np.uint32) << 15))
+            zero_offset = 2 ** (10 - 1)
+            packed_world[..., 1] = (np.uint32(zero_offset)
+                                    | (np.uint32(zero_offset) << 10)
+                                    | (np.uint32(zero_offset) << 20))
 
             gl.glTextureSubImage3D(
                 write_ids[index],
@@ -332,7 +338,7 @@ class World(PhysicalObject):
     # todo: Добавить зацикливание мира по xy
     # performance: Numba @njit(parallel=True)
     # performance: У numpy есть where, возможно он поможет не обновлять весь мир разом, а только активные ячейки
-    def on_update(self, delta_time: int) -> None:
+    def on_update(self) -> None:
         futures = []
         for _ in []:
             futures.extend()
@@ -342,7 +348,7 @@ class World(PhysicalObject):
 
         if not self.textures_writen:
             self.write_textures()
-        self.compute_shader["u_world_age"] = self.age
+        # self.compute_shader["u_world_age"] = self.age
 
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         self.compute_creatures()
@@ -352,7 +358,7 @@ class World(PhysicalObject):
         #  чтобы самостоятельно управлять барьерами
         self.compute_shader.run(*self.settings.COMPUTE_SHADER_WORK_GROUPS)
 
-        self.age += delta_time
+        self.age += self.settings.WORLD_UPDATE_PERIOD
         self.bind_textures()
 
     # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.

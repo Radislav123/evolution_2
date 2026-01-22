@@ -126,7 +126,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
 
     def on_update(self, _: float) -> None:
         try:
-            self.world.on_update(self.settings.WORLD_UPDATE_PERIOD)
+            self.world.on_update()
         except Exception as error:
             error.window = self
             raise error

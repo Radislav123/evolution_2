@@ -35,7 +35,7 @@ class Settings(Singleton):
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
-        self.GRAVITY_VECTOR = Vec3(1, 1, 1)
+        self.GRAVITY_VECTOR = Vec3(0, 0, -0.00001)
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
