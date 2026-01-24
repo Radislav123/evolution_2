@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from simulator.window import ProjectWindow
 
 CellIterator = npt.NDArray[np.int32]
-VoxelIterator = CellIterator
 
 OpenGLIds = tuple[ctypes.c_uint, ...]
 OpenGLHandles = npt.NDArray[np.uint64]
@@ -34,16 +33,13 @@ class WorldProjection(ProjectionObject):
         self.window = self.world.window
         self.ctx = self.window.ctx
 
-        self.voxel_count = self.world.cell_count
-        self.iterator: VoxelIterator = self.world.iterator
-
         self.program = self.ctx.program(
             vertex_shader = load_shader(f"{self.settings.SHADERS}/projectional/vertex.glsl"),
             fragment_shader = load_shader(
                 f"{self.settings.SHADERS}/projectional/fragment.glsl",
                 {
                     "color_function_path": (
-                        f"{self.settings.SHADERS}/projectional/functions/get_voxel_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
+                        f"{self.settings.SHADERS}/projectional/functions/get_unit_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
                         {}
                     )
                 }

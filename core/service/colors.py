@@ -7,8 +7,6 @@ class ProjectColors:
 
     PLACEHOLDER = (239, 64, 245, 255)
 
-    VOXEL_EDGE = (0, 0, 0, 1)
-
     BACKGROUND_DARK = (30, 35, 45, 255)
     BACKGROUND_LIGHT = (230, 235, 245, 255)
 

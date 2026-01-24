@@ -65,6 +65,6 @@ def write_uniforms(program: Program | ComputeShader, uniforms: dict[str, tuple[A
             if raise_error:
                 raise error
             # Предупреждение можно не показывать, если это, к примеру, переменная из #include,
-            # а #include подключается по условию (как get_voxel_color для fragment.glsl)
+            # а #include подключается по условию (как get_unit_color для fragment.glsl)
             if show_warning:
                 logger.warning(str(error))
