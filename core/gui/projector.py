@@ -24,9 +24,9 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.rotation_radius = self.settings.CAMERA_ROTATION_RADIUS
 
         # Должен совпадать с World.center
-        self.world_center = Vec3(*self.settings.WORLD_SHAPE) // 2
+        self.world_unit_center = Vec3(*self.settings.WORLD_UNIT_SHAPE) // 2
         # Отодвигаем камеру по z, чтобы видеть объекты в центре сцены
-        self.centralized_position = self.world_center + Vec3(0, 0, self.rotation_radius)
+        self.centralized_position = self.world_unit_center + Vec3(0, 0, self.rotation_radius)
         self.centralized_forward = Vec3(0, 0, -1)
         self.centralized_up = Vec3(0, 1, 0)
         self.centralized_right = self.centralized_forward.cross(self.centralized_up).normalize()

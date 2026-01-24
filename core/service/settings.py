@@ -30,12 +30,14 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(128, 128, 128)
-        self.CELL_SUBSTANCE_COUNT = 4
+        self.WORLD_SHAPE = Vec3(3, 3, 3)
+        self.CELL_SHAPE = Vec3(4, 4, 4)
+        self.WORLD_UNIT_SHAPE = self.WORLD_SHAPE * self.CELL_SHAPE
+        self.CHUNK_COUNT = 1
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
-        self.GRAVITY_VECTOR = Vec3(0, 0, -0.00001)
+        self.GRAVITY_VECTOR = Vec3(0.01, 0, 0)
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
@@ -43,7 +45,7 @@ class Settings(Singleton):
         self.CAMERA_MAX_ZOOM = 100
         self.CAMERA_ZOOM = 1
         # Также является расстоянием до центра мира по умолчанию
-        self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
+        self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_UNIT_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
         self.CAMERA_FAR = 10000
         # Не ставить 0, так как возникает ZeroDivisionError
@@ -60,16 +62,13 @@ class Settings(Singleton):
         self.BUTTON_UPDATE_PERIOD = 0.5
 
         self.MAX_FPS = 60
-        self.MAX_TPS = 1000
+        self.MAX_TPS = 100
 
         self.BUFFER_INDEXES = set()
-        # Рекомендуется
-        self.COMPUTE_SHADER_BLOCK_SHAPE = Vec3(8, 8, 8)
-        self.COMPUTE_SHADER_WORK_GROUPS = self.WORLD_SHAPE // self.COMPUTE_SHADER_BLOCK_SHAPE
 
         self.TEST_COLOR_CUBE = False
-        self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
-        self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_SHAPE), 0.03))
+        self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_UNIT_SHAPE), 0.03))
+        self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_UNIT_SHAPE), 0.03))
 
         self.check()
 
@@ -78,13 +77,6 @@ class Settings(Singleton):
     def check(self) -> None:
         if min(self.WORLD_SHAPE) <= 1:
             raise SettingError(f"All world dimensions, WORLD_SHAPE {self.WORLD_SHAPE}, must be greater than 1")
-        if sum(self.WORLD_SHAPE % self.COMPUTE_SHADER_BLOCK_SHAPE) > 0:
-            raise SettingError(
-                f"WORLD_SHAPE {self.WORLD_SHAPE} must be divisible without remainder into COMPUTE_SHADER_BLOCK_SHAPE {self.COMPUTE_SHADER_BLOCK_SHAPE}"
-            )
 
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")
-
-        if self.CELL_SUBSTANCE_COUNT <= 0:
-            raise SettingError(f"CELL_SUBSTANCE_COUNT ({self.CELL_SUBSTANCE_COUNT}) must be grater than 0")

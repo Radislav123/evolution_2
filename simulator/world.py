@@ -58,8 +58,7 @@ class WorldProjection(ProjectionObject):
             "u_fov_scale": (self.window.projector.projection.fov_scale, True, True),
             "u_near": (self.window.projector.projection.near, True, True),
             "u_far": (self.window.projector.projection.far, True, True),
-            "u_world_shape": (self.world.shape, True, True),
-            "u_cell_substance_count": (self.settings.CELL_SUBSTANCE_COUNT, False, False),
+            "u_world_unit_shape": (self.world.unit_shape, True, True),
 
             "u_background": (ProjectColors.to_opengl(self.settings.WINDOW_BACKGROUND_COLOR), True, True),
             "u_optical_density_scale": (self.settings.OPTICAL_DENSITY_SCALE, False, False),
@@ -158,6 +157,8 @@ class World(PhysicalObject):
         self.ctx = self.window.ctx
 
         self.shape = self.settings.WORLD_SHAPE
+        self.cell_shape = self.settings.CELL_SHAPE
+        self.unit_shape = self.settings.WORLD_UNIT_SHAPE
         self.width, self.length, self.height = self.shape
         self.center = self.shape // 2
 
@@ -168,18 +169,20 @@ class World(PhysicalObject):
         ).reshape(-1, 3)
 
         self.cell_count = self.width * self.length * self.height
+        self.subcell_in_cell_count = self.cell_shape.x * self.cell_shape.y * self.cell_shape.z
+        self.subcell_count = self.cell_count * self.subcell_in_cell_count
         # todo: Генерировать мир тоже на gpu
-        self.substances = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
-        self.quantities = np.zeros((*self.shape, self.settings.CELL_SUBSTANCE_COUNT), dtype = np.uint16)
+        self.substances = np.zeros(self.unit_shape, dtype = np.uint16)
+        self.quantities = np.zeros(self.unit_shape, dtype = np.uint16)
 
         self.compute_shader = self.ctx.compute_shader(
             source = load_shader(
                 f"{self.settings.SHADERS}/physical/compute.glsl",
                 None,
                 {
-                    "block_size_x": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.x,
-                    "block_size_y": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.y,
-                    "block_size_z": self.settings.COMPUTE_SHADER_BLOCK_SHAPE.z
+                    "block_size_x": self.cell_shape.x,
+                    "block_size_y": self.cell_shape.y,
+                    "block_size_z": self.cell_shape.z
                 }
             )
         )
@@ -193,10 +196,9 @@ class World(PhysicalObject):
         self.bind_textures()
 
         uniforms = {
-            "u_cell_substance_count": (self.settings.CELL_SUBSTANCE_COUNT, True, True),
             "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, True, True),
 
-            "u_world_shape": (self.shape, True, True),
+            "u_world_unit_shape": (self.unit_shape, True, True),
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
         }
         write_uniforms(self.compute_shader, uniforms)
@@ -217,8 +219,8 @@ class World(PhysicalObject):
 
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
     def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint]:
-        read_handles = np.zeros(self.settings.CELL_SUBSTANCE_COUNT, dtype = np.uint64)
-        write_handles = np.zeros(self.settings.CELL_SUBSTANCE_COUNT, dtype = np.uint64)
+        read_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
+        write_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
 
         sampler_id = gl.GLuint()
         gl.glGenSamplers(1, sampler_id)
@@ -229,10 +231,10 @@ class World(PhysicalObject):
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_R, gl.GL_CLAMP_TO_EDGE)
 
-        texture_ids = (gl.GLuint * self.settings.CELL_SUBSTANCE_COUNT)()
-        gl.glGenTextures(self.settings.CELL_SUBSTANCE_COUNT, texture_ids)
+        texture_ids = (gl.GLuint * self.settings.CHUNK_COUNT)()
+        gl.glGenTextures(self.settings.CHUNK_COUNT, texture_ids)
 
-        for index in range(self.settings.CELL_SUBSTANCE_COUNT):
+        for index in range(self.settings.CHUNK_COUNT):
             texture_id = texture_ids[index]
             gl.glBindTexture(gl.GL_TEXTURE_3D, texture_id)
 
@@ -240,9 +242,9 @@ class World(PhysicalObject):
                 gl.GL_TEXTURE_3D,
                 1,
                 gl.GL_RGBA32UI,
-                self.width,
-                self.length,
-                self.height
+                self.unit_shape.x,
+                self.unit_shape.y,
+                self.unit_shape.z
             )
             read_handle = gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
             gl.glMakeTextureHandleResidentARB(read_handle)
@@ -276,7 +278,7 @@ class World(PhysicalObject):
         return tuple(texture_ids), read_buffer_id, write_buffer_id
 
     def prepare(self) -> None:
-        self.generate_materials()
+        self.generate_sphere()
 
     def start(self) -> None:
         self.projection = WorldProjection(self)
@@ -291,30 +293,31 @@ class World(PhysicalObject):
         else:
             write_ids = self.texture_infos[0][0]
 
-        for index in range(self.settings.CELL_SUBSTANCE_COUNT):
-            packed_world = np.empty((self.height, self.length, self.width, 4), dtype = np.uint32)
-            # todo: Добавить проверку (assert), что веществ меньше чем 2**15
-            # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**15
-            packed_world[..., 0] = (self.substances[..., index].astype(np.uint32)
-                                    | (self.quantities[..., index].astype(np.uint32) << 15))
-            zero_offset = 2 ** (10 - 1)
-            packed_world[..., 1] = (np.uint32(zero_offset)
-                                    | (np.uint32(zero_offset) << 10)
-                                    | (np.uint32(zero_offset) << 20))
+        chunk_index = 0
 
-            gl.glTextureSubImage3D(
-                write_ids[index],
-                0,
-                0,
-                0,
-                0,
-                self.width,
-                self.length,
-                self.height,
-                gl.GL_RGBA_INTEGER,
-                gl.GL_UNSIGNED_INT,
-                packed_world.ctypes.data
-            )
+        packed_world = np.empty((*self.unit_shape, 4), dtype = np.uint32)
+        # todo: Добавить проверку (assert), что веществ меньше чем 2**15
+        # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**15
+        packed_world[..., 0] = (self.substances[...].astype(np.uint32)
+                                | (self.quantities[...].astype(np.uint32) << 15))
+        zero_offset = 2 ** (10 - 1)
+        packed_world[..., 1] = (np.uint32(zero_offset)
+                                | (np.uint32(zero_offset) << 10)
+                                | (np.uint32(zero_offset) << 20))
+
+        gl.glTextureSubImage3D(
+            write_ids[chunk_index],
+            0,
+            0,
+            0,
+            0,
+            self.unit_shape.x,
+            self.unit_shape.y,
+            self.unit_shape.z,
+            gl.GL_RGBA_INTEGER,
+            gl.GL_UNSIGNED_INT,
+            packed_world.ctypes.data
+        )
 
         self.textures_writen = True
 
@@ -356,33 +359,66 @@ class World(PhysicalObject):
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         # todo: заменить run (и render в projection) на самостоятельный вызов opengl,
         #  чтобы самостоятельно управлять барьерами
-        self.compute_shader.run(*self.settings.COMPUTE_SHADER_WORK_GROUPS)
+        self.compute_shader.run(*self.settings.WORLD_SHAPE)
+
+        if self.age % 100 == 0:
+            gl.glMemoryBarrier(
+                gl.GL_ALL_BARRIER_BITS | gl.GL_ALL_SHADER_BITS | gl.GL_TEXTURE_FETCH_BARRIER_BIT | gl.GL_TEXTURE_UPDATE_BARRIER_BIT
+            )
+            # 4 - количество каналов в текстуре?
+            size = self.subcell_count * 4  # Общее количество uint32
+            buffer = (gl.GLuint * size)()
+
+            if self.texture_state:
+                bind_index = 0
+            else:
+                bind_index = 1
+            gl.glBindTexture(gl.GL_TEXTURE_3D, self.texture_infos[bind_index][0][0])
+
+            # Читаем данные из GPU в CPU
+            gl.glGetTexImage(
+                gl.GL_TEXTURE_3D,
+                0,  # level
+                gl.GL_RGBA_INTEGER,  # формат (для UI текстур обязательно _INTEGER)
+                gl.GL_UNSIGNED_INT,  # тип данных
+                buffer  # куда записать
+            )
+
+            # Превращаем в NumPy (без копирования памяти)
+            world_array = np.frombuffer(buffer, dtype = np.uint32).reshape(*self.unit_shape, 4)
+            print("------------------------")
+            data = world_array[self.center.z * self.cell_shape.z, self.center.y * self.cell_shape.y, :, 0]
+            substances = [int(x & 0x7FFF) for x in data]
+            quantities = [int((x >> 15) & 0x7FFF) for x in data]
+            print(substances)
+            print(quantities)
 
         self.age += self.settings.WORLD_UPDATE_PERIOD
         self.bind_textures()
 
     # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.
-    def generate_materials(self) -> None:
-        world_sphere_radius = max((self.width + self.length + self.height) / 2 / 3, 1)
-        index_z, index_y, index_x = np.indices(self.shape)
+    def generate_sphere(self, radius: float = None) -> None:
+        if radius is None:
+            radius = max(sum(self.unit_shape) / 2 / 3, 1)
+        index_z, index_y, index_x = np.indices(self.unit_shape)
         in_center = True
         if in_center:
             point_radius = np.maximum(
                 np.sqrt(
-                    (self.width / 2 - index_x) ** 2
-                    + (self.length / 2 - index_y) ** 2
-                    + (self.height / 2 - index_z) ** 2
+                    (self.unit_shape.x / 2 - index_x) ** 2
+                    + (self.unit_shape.y / 2 - index_y) ** 2
+                    + (self.unit_shape.z / 2 - index_z) ** 2
                 ),
                 1
             )
         else:
             point_radius = np.maximum(np.sqrt(index_x ** 2 + index_y ** 2 + index_z ** 2), 1)
-        mask = point_radius <= world_sphere_radius
+        mask = point_radius <= radius
 
-        quantities = (1000 * (world_sphere_radius - point_radius) // world_sphere_radius).astype(np.uint16)
-        self.quantities[mask, 0] = quantities[mask]
+        quantities = (1000 * (radius - point_radius) // radius).astype(np.uint16)
+        self.quantities[mask] = quantities[mask]
 
-        relative_radius = point_radius / world_sphere_radius
+        relative_radius = point_radius / radius
         conditions = (
             relative_radius < 0.2,
             (relative_radius >= 0.2) & (relative_radius < 0.4),
@@ -394,4 +430,11 @@ class World(PhysicalObject):
             conditions,
             Substance.indexes[1:6]
         )
-        self.substances[mask, 0] = substance_ids[mask]
+        self.substances[mask] = substance_ids[mask]
+
+        # self.substances[:] = 3
+        # self.quantities[:] = 50
+        self.substances[:] = 0
+        self.quantities[:] = 0
+        self.substances[*(self.center * self.cell_shape)] = 1
+        self.quantities[*(self.center * self.cell_shape)] = 1000

@@ -1,4 +1,3 @@
-uniform uint u_cell_substance_count;
 uniform float u_optical_density_scale;
 
 uniform sampler1D u_colors;
@@ -9,30 +8,26 @@ layout(std430, binding = 0) readonly restrict buffer World {
 } u_world[2];
 
 
-vec4 get_voxel_color(ivec3 position) {
+vec4 get_subvoxel_color(ivec3 position) {
     vec3 rgb_squared = vec3(0.0);
     float optical_depth = 0.0;
     vec3 rgb = vec3(0.0);
     float opacity = 0.0;
+    uint chunk_index = 0;
 
-    bool next_layer_filled = true;
-    for (uint layer_index = 0u; layer_index < u_cell_substance_count && next_layer_filled; layer_index++) {
-        // u_world[0] - текстура для чтения
-        // u_world[1] - текстура для записи, которая в данном шейдере не используется
-        uvec4 packed_layer = texelFetch(u_world[0].handles[layer_index], position, 0);
+    // u_world[0] - текстура для чтения
+    // u_world[1] - текстура для записи, которая в данном шейдере не используется
+    uvec4 packed_layer = texelFetch(u_world[0].handles[chunk_index], position, 0);
 
-        uint substance_id = bitfieldExtract(packed_layer.r, 0, 15);
-        uint quantity = bitfieldExtract(packed_layer.r, 15, 15);
-        next_layer_filled = bool(bitfieldExtract(packed_layer.r, 30, 1));
-        if (substance_id == 0U || quantity == 0u) continue;
+    uint substance_id = bitfieldExtract(packed_layer.r, 0, 15);
+    uint quantity = bitfieldExtract(packed_layer.r, 15, 15);
 
-        float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
-        vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
+    float absorption_rate = texelFetch(u_absorption, int(substance_id), 0).r;
+    vec3 substance_rgb_val = texelFetch(u_colors, int(substance_id), 0).rgb;
 
-        float substance_optical_depth = absorption_rate * float(quantity);
-        optical_depth += substance_optical_depth;
-        rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
-    }
+    float substance_optical_depth = absorption_rate * float(quantity);
+    optical_depth += substance_optical_depth;
+    rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;
 
     if (optical_depth > 0.0) {
         rgb = sqrt(rgb_squared / optical_depth);

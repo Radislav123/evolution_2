@@ -8,7 +8,7 @@ uniform vec2 u_window_size;
 uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
-uniform ivec3 u_world_shape;
+uniform ivec3 u_world_unit_shape;
 
 uniform vec4 u_background;
 
@@ -30,9 +30,10 @@ out vec4 f_color;
 // todo: Добавить отражение
 // todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
 //  а добавлять цвет по количеству пройденного расстояния внутри вокселя.
+// todo: Сейчас рисуется мир по подячейкам, сделать режим отрисовки по ячейкам
 void main() {
-    ivec3 world_min = ivec3(0.0);
-    ivec3 world_max = u_world_shape;
+    ivec3 world_min = ivec3(0);
+    ivec3 world_max = u_world_unit_shape;
 
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
     vec2 pixel_position_normalized = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
@@ -77,13 +78,13 @@ void main() {
         vec3 step_size = abs(ray_backward);
 
         vec3 next_boundary = (voxel_position - ray_start + max(step_forward, 0.0)) * ray_backward;
-        uint max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
+        uint max_iterations = u_world_unit_shape.x + u_world_unit_shape.y + u_world_unit_shape.z;
         for (uint i = 0; i < max_iterations; i++) {
             // Проверка границ
             if (any(lessThan(voxel_position, world_min))
             || any(greaterThanEqual(voxel_position, world_max))) break;
 
-            vec4 voxel_color = get_voxel_color(ivec3(voxel_position));
+            vec4 voxel_color = get_subvoxel_color(ivec3(voxel_position));
 
             if (voxel_color.a > 0.01) {
                 float alpha = voxel_color.a * (1.0 - ray_color.a);
