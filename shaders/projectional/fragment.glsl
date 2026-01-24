@@ -52,7 +52,7 @@ void main() {
     u_view_forward * ray_forward_local.z
     );
 
-    // Смещение отображения мира так, чтобы центр воксел (0, 0, 0) был в позиции (0, 0, 0)
+    // Смещение отображения мира так, чтобы центр юнита (0, 0, 0) был в позиции (0, 0, 0)
     vec3 biased_view_position = u_view_position + vec3(0.5);
 
     // Нужно для ускорения вычислений, заменяет деление на умножение
@@ -72,23 +72,23 @@ void main() {
         float ray_start_offset = max(entry_distance, 0.0) + 0.001;
         vec3 ray_start = biased_view_position + ray_forward * ray_start_offset;
 
-        // Позиция вокселя, внутри которого сейчас находится луч
-        vec3 voxel_position = floor(ray_start);
+        // Позиция юнита, внутри которого сейчас находится луч
+        vec3 unit_position = floor(ray_start);
         vec3 step_forward = sign(ray_forward);
         vec3 step_size = abs(ray_backward);
 
-        vec3 next_boundary = (voxel_position - ray_start + max(step_forward, 0.0)) * ray_backward;
+        vec3 next_boundary = (unit_position - ray_start + max(step_forward, 0.0)) * ray_backward;
         uint max_iterations = u_world_unit_shape.x + u_world_unit_shape.y + u_world_unit_shape.z;
         for (uint i = 0; i < max_iterations; i++) {
             // Проверка границ
-            if (any(lessThan(voxel_position, world_min))
-            || any(greaterThanEqual(voxel_position, world_max))) break;
+            if (any(lessThan(unit_position, world_min))
+            || any(greaterThanEqual(unit_position, world_max))) break;
 
-            vec4 voxel_color = get_subvoxel_color(ivec3(voxel_position));
+            vec4 unit_color = get_unit_color(ivec3(unit_position));
 
-            if (voxel_color.a > 0.01) {
-                float alpha = voxel_color.a * (1.0 - ray_color.a);
-                ray_color += vec4(voxel_color.rgb * alpha, alpha);
+            if (unit_color.a > 0.01) {
+                float alpha = unit_color.a * (1.0 - ray_color.a);
+                ray_color += vec4(unit_color.rgb * alpha, alpha);
                 if (ray_color.a >= 0.99) break;
             }
 
@@ -96,7 +96,7 @@ void main() {
             if (mask.x > 0.0) mask.yz = vec2(0.0);
             else if (mask.y > 0.0) mask.z = 0.0;
             next_boundary += mask * step_size;
-            voxel_position += mask * step_forward;
+            unit_position += mask * step_forward;
         }
     }
 

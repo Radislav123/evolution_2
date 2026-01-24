@@ -24,41 +24,56 @@ layout(std430, binding = 1) writeonly restrict buffer WorldWrite {
 
 const int zero_offset_10_bit = int(pow(2, 10 - 1));
 // Коэффициент поправки необходим для более точного хранения
-const float momentum_coeff = 100;
+const uint momentum_coeff = 100;
+
+
+struct Unit {
+    uint substance;
+    uint quantity;
+    vec3 momentum;
+};
+
+Unit unpack_unit(uvec4 packed_unit) {
+    Unit unit;
+
+    unit.substance = bitfieldExtract(packed_unit.r, 0, 15);
+    unit.quantity = bitfieldExtract(packed_unit.r, 15, 15);
+
+    // momentum - импульс одной молекулы вещества
+    unit.momentum = (vec3(
+    bitfieldExtract(packed_unit.g, 0, 10),
+    bitfieldExtract(packed_unit.g, 10, 10),
+    bitfieldExtract(packed_unit.g, 20, 10)
+    ) - zero_offset_10_bit) / momentum_coeff;
+
+    return unit;
+}
+
+uvec4 pack_unit(Unit unit) {
+    uvec4 packed_unit;
+
+    packed_unit.r = unit.substance | (unit.quantity << 15);
+
+    uvec3 packed_momentum = uvec3(unit.momentum + zero_offset_10_bit) * momentum_coeff;
+    packed_unit.g = packed_momentum.x
+    | (packed_momentum.y << 10)
+    | (packed_momentum.z << 20);
+
+    return packed_unit;
+}
 
 
 void main() {
+    // todo: remove stubs;
+    u_world_update_period;
+    u_world_unit_shape;
+    u_gravity_vector;
+
     ivec3 read_position = ivec3(gl_GlobalInvocationID);
     ivec3 write_position = read_position;
     uint chunk_index = 0;
 
-    uvec4 packed_layer = texelFetch(u_world_read.handles[chunk_index], read_position, 0);
+    Unit unit = unpack_unit(texelFetch(u_world_read.handles[chunk_index], read_position, 0));
 
-    uint substance_id = bitfieldExtract(packed_layer.r, 0, 15);
-    int quantity = int(bitfieldExtract(packed_layer.r, 15, 15));
-
-    // momentum - импульс одной молекулы вещества в ячейке
-    vec3 momentum = (vec3(
-    bitfieldExtract(packed_layer.g, 0, 10),
-    bitfieldExtract(packed_layer.g, 10, 10),
-    bitfieldExtract(packed_layer.g, 20, 10)
-    ) - zero_offset_10_bit) / momentum_coeff;
-
-    momentum += u_gravity_vector * u_world_update_period;
-    if (read_position.x == 0 || read_position.x == u_world_unit_shape.x - 1) {
-        if (quantity > 0) {
-            momentum.x *= -1.1;
-        }
-    }
-    if (abs(momentum.x) >= 1) {
-        write_position.x += int(sign(momentum.x));
-        momentum.x = 0;
-    }
-
-    packed_layer.r = substance_id | (uint(quantity) << 15);
-    momentum *= momentum_coeff;
-    packed_layer.g = uint(momentum.x + zero_offset_10_bit)
-    | (uint(momentum.y + zero_offset_10_bit) << 10)
-    | (uint(momentum.z + zero_offset_10_bit) << 20);
-    imageStore(u_world_write.handles[chunk_index], write_position, packed_layer);
+    imageStore(u_world_write.handles[chunk_index], write_position, pack_unit(unit));
 }
