@@ -176,9 +176,9 @@ class World(PhysicalObject):
                 f"{self.settings.SHADERS}/physical/compute.glsl",
                 None,
                 {
-                    "block_size_x": self.cell_shape.x,
-                    "block_size_y": self.cell_shape.y,
-                    "block_size_z": self.cell_shape.z
+                    "cell_size_x": self.cell_shape.x,
+                    "cell_size_y": self.cell_shape.y,
+                    "cell_size_z": self.cell_shape.z
                 }
             )
         )
@@ -347,7 +347,7 @@ class World(PhysicalObject):
 
         if not self.textures_writen:
             self.write_textures()
-        # self.compute_shader["u_world_age"] = self.age
+        self.compute_shader["u_world_age"] = self.age
 
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         self.compute_creatures()
