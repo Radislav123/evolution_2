@@ -30,12 +30,14 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(3, 3, 3)
-        self.CELL_SHAPE = Vec3(4, 4, 4)
+        self.WORLD_SHAPE = Vec3(5, 5, 5)
+        # Это должно быть константой, так как на этом построена логика
+        self.CELL_SHAPE_D = 4
+        self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])
         self.WORLD_UNIT_SHAPE = self.WORLD_SHAPE * self.CELL_SHAPE
         self.CHUNK_COUNT = 1
 
-        self.OPTICAL_DENSITY_SCALE = 0.001
+        self.OPTICAL_DENSITY_SCALE = 0.0001
 
         self.GRAVITY_VECTOR = Vec3(0.01, 0, 0)
 
@@ -45,7 +47,7 @@ class Settings(Singleton):
         self.CAMERA_MAX_ZOOM = 100
         self.CAMERA_ZOOM = 1
         # Также является расстоянием до центра мира по умолчанию
-        self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_UNIT_SHAPE) // 3 * 5
+        self.CAMERA_ROTATION_RADIUS = sum(self.WORLD_SHAPE) // 3 * 5
         self.CAMERA_ROTATION_SENSITIVITY = 0.005
         self.CAMERA_FAR = 10000
         # Не ставить 0, так как возникает ZeroDivisionError
@@ -67,8 +69,8 @@ class Settings(Singleton):
         self.BUFFER_INDEXES = set()
 
         self.TEST_COLOR_CUBE = False
-        self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_UNIT_SHAPE), 0.03))
-        self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_UNIT_SHAPE), 0.03))
+        self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
+        self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_SHAPE), 0.03))
 
         self.check()
 
@@ -80,3 +82,6 @@ class Settings(Singleton):
 
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")
+
+        if self.CELL_SHAPE_D != 4:
+            raise SettingError(f"CELL_SHAPE_D ({self.CELL_SHAPE_D}) must be 4")

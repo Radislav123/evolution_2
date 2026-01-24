@@ -39,9 +39,12 @@ class WorldProjection(ProjectionObject):
                 f"{self.settings.SHADERS}/projectional/fragment.glsl",
                 {
                     "color_function_path": (
-                        f"{self.settings.SHADERS}/projectional/functions/get_unit_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
+                        f"{self.settings.SHADERS}/projectional/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
                         {}
                     )
+                },
+                {
+                    "cell_size_d": self.settings.CELL_SHAPE_D
                 }
             )
         )
@@ -54,7 +57,7 @@ class WorldProjection(ProjectionObject):
             "u_fov_scale": (self.window.projector.projection.fov_scale, True, True),
             "u_near": (self.window.projector.projection.near, True, True),
             "u_far": (self.window.projector.projection.far, True, True),
-            "u_world_unit_shape": (self.world.unit_shape, True, True),
+            "u_world_shape": (self.world.shape, True, True),
 
             "u_background": (ProjectColors.to_opengl(self.settings.WINDOW_BACKGROUND_COLOR), True, True),
             "u_optical_density_scale": (self.settings.OPTICAL_DENSITY_SCALE, False, False),
@@ -176,9 +179,7 @@ class World(PhysicalObject):
                 f"{self.settings.SHADERS}/physical/compute.glsl",
                 None,
                 {
-                    "cell_size_x": self.cell_shape.x,
-                    "cell_size_y": self.cell_shape.y,
-                    "cell_size_z": self.cell_shape.z
+                    "cell_size_d": self.settings.CELL_SHAPE_D
                 }
             )
         )
@@ -236,7 +237,7 @@ class World(PhysicalObject):
 
             gl.glTexStorage3D(
                 gl.GL_TEXTURE_3D,
-                1,
+                3,
                 gl.GL_RGBA32UI,
                 self.unit_shape.x,
                 self.unit_shape.y,
@@ -430,7 +431,7 @@ class World(PhysicalObject):
 
         # self.substances[:] = 3
         # self.quantities[:] = 50
-        self.substances[:] = 0
-        self.quantities[:] = 0
-        self.substances[*(self.center * self.cell_shape)] = 1
-        self.quantities[*(self.center * self.cell_shape)] = 1000
+        # self.substances[:] = 0
+        # self.quantities[:] = 0
+        # self.substances[*(self.center * self.cell_shape)] = 1
+        # self.quantities[*(self.center * self.cell_shape)] = 1000

@@ -1,15 +1,21 @@
 #version 460
 #extension GL_ARB_bindless_texture : require
 
-const uvec3 cell_shape = uvec3(cell_size_x, cell_size_y, cell_size_z);
-const uvec3 cell_cache_shape = uvec3(cell_size_x + 2, cell_size_y + 2, cell_size_z + 2);
+const uvec3 cell_shape = uvec3(cell_size_d, cell_size_d, cell_size_d);
+const uint cell_size = cell_shape.x * cell_shape.y * cell_shape.z;
 
 layout(local_size_x = cell_shape.x, local_size_y = cell_shape.y, local_size_z = cell_shape.z) in;
-// Содержит юниты ячейки и юниты соседних ячеек в один слой
-shared uvec4 cell_cache[cell_cache_shape.x][cell_cache_shape.y][cell_cache_shape.z];
-
-const uint cell_size = cell_shape.x * cell_shape.y * cell_shape.z;
-const uint cell_cache_size = cell_cache_shape.x * cell_cache_shape.y * cell_cache_shape.z;
+// performance: Хранить данные распакованными?
+shared uvec4 cell_cache[7][cell_size];
+const ivec3 cell_offsets[7] = ivec3[7](
+ivec3(0, 0, 0),
+ivec3(-cell_shape.x, 0, 0),
+ivec3(cell_shape.x, 0, 0),
+ivec3(0, -cell_shape.y, 0),
+ivec3(0, cell_shape.y, 0),
+ivec3(0, 0, -cell_shape.z),
+ivec3(0, 0, cell_shape.z)
+);
 
 
 // Переменные, которые почти не меняются или меняются редко
@@ -77,31 +83,25 @@ void main() {
     u_world_update_period;
     u_world_unit_shape;
     u_gravity_vector;
+    u_world_age;
 
+    // Позиция юнита в текстуре
     ivec3 global_position = ivec3(gl_GlobalInvocationID);
+    // Позиция юнита в ячейке
+    ivec3 local_position = ivec3(gl_LocalInvocationID);
+    int local_index = int(gl_LocalInvocationIndex);
     uint chunk_index = 0;
 
-    for (uint index = gl_LocalInvocationIndex; index < cell_cache_size; index += cell_size) {
-        ivec3 cache_position = ivec3(
-        index % cell_cache_shape.x,
-        (index % (cell_cache_shape.x * cell_cache_shape.y)) / cell_cache_shape.x,
-        index / (cell_cache_shape.x * cell_cache_shape.y)
-        );
-        ivec3 read_position = (cache_position + ivec3(gl_WorkGroupID * cell_shape) - 1 + u_world_unit_shape) % u_world_unit_shape;
-
-        cell_cache[cache_position.x][cache_position.y][cache_position.z] = texelFetch(u_world_read.handles[chunk_index], read_position, 0);
+    // todo: Переписать под новый вариант хранения кэша
+    // todo: Во втором слое завести счетчик, показывающий сколько юнитов заполнено
+    for (uint cell_index = 0; cell_index < 7; cell_index++) {
+        ivec3 read_position = (global_position + cell_offsets[cell_index] + u_world_unit_shape) % u_world_unit_shape;
+        cell_cache[cell_index][local_index] = texelFetch(u_world_read.handles[chunk_index], read_position, 0);
     }
 
     memoryBarrierShared();
     barrier();
 
-    ivec3 cache_position = ivec3(gl_LocalInvocationID) + 1;
-    Unit unit = unpack_unit(cell_cache[cache_position.x][cache_position.y][cache_position.z]);
-
-    ivec3 write_position = global_position;
-
-    if (u_world_age % 50 == 0 && u_world_age > 50) {
-        write_position = (write_position + ivec3(sign(u_gravity_vector)) + u_world_unit_shape) % u_world_unit_shape;
-    }
-    imageStore(u_world_write.handles[chunk_index], write_position, pack_unit(unit));
+    Unit unit = unpack_unit(cell_cache[0][local_index]);
+    imageStore(u_world_write.handles[chunk_index], global_position, pack_unit(unit));
 }

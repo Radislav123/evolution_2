@@ -8,7 +8,7 @@ uniform vec2 u_window_size;
 uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
-uniform ivec3 u_world_unit_shape;
+uniform ivec3 u_world_shape;
 
 uniform vec4 u_background;
 
@@ -28,12 +28,10 @@ out vec4 f_color;
 // performance: После разбиения на чанки, можно помечать чанки, в которых ничего не нужно рисовать?
 // todo: Добавить преломление
 // todo: Добавить отражение
-// todo: Уйти от "стеклянных" вокселей. Не просто добавлять цвет лучу по прохождении границы вокселя,
-//  а добавлять цвет по количеству пройденного расстояния внутри вокселя.
-// todo: Сейчас рисуется мир по подячейкам, сделать режим отрисовки по ячейкам
+// todo: Уйти от "стеклянных" ячеек. Не просто добавлять цвет лучу по прохождении границы ячейки, а добавлять цвет по количеству пройденного расстояния внутри вокселя
 void main() {
     ivec3 world_min = ivec3(0);
-    ivec3 world_max = u_world_unit_shape;
+    ivec3 world_max = u_world_shape - 1;
 
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
     vec2 pixel_position_normalized = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
@@ -52,13 +50,13 @@ void main() {
     u_view_forward * ray_forward_local.z
     );
 
-    // Смещение отображения мира так, чтобы центр юнита (0, 0, 0) был в позиции (0, 0, 0)
+    // Смещение отображения мира так, чтобы центр ячейки (0, 0, 0) был в позиции (0, 0, 0)
     vec3 biased_view_position = u_view_position + vec3(0.5);
 
     // Нужно для ускорения вычислений, заменяет деление на умножение
     vec3 ray_backward = 1.0 / (ray_forward + vec3(1e-9));
     vec3 distance_to_mins = (world_min - biased_view_position) * ray_backward;
-    vec3 distance_to_maxes = (world_max - biased_view_position) * ray_backward;
+    vec3 distance_to_maxes = (world_max - biased_view_position + 1) * ray_backward;
     vec3 near_bounds = min(distance_to_mins, distance_to_maxes);
     vec3 far_bounds = max(distance_to_mins, distance_to_maxes);
 
@@ -72,23 +70,23 @@ void main() {
         float ray_start_offset = max(entry_distance, 0.0) + 0.001;
         vec3 ray_start = biased_view_position + ray_forward * ray_start_offset;
 
-        // Позиция юнита, внутри которого сейчас находится луч
-        vec3 unit_position = floor(ray_start);
+        // Позиция ячейки, внутри которого сейчас находится луч
+        vec3 cell_position = floor(ray_start);
         vec3 step_forward = sign(ray_forward);
         vec3 step_size = abs(ray_backward);
 
-        vec3 next_boundary = (unit_position - ray_start + max(step_forward, 0.0)) * ray_backward;
-        uint max_iterations = u_world_unit_shape.x + u_world_unit_shape.y + u_world_unit_shape.z;
-        for (uint i = 0; i < max_iterations; i++) {
+        vec3 next_boundary = (cell_position - ray_start + max(step_forward, 0.0)) * ray_backward;
+        uint max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
+        for (uint iteration = 0; iteration < max_iterations; iteration++) {
             // Проверка границ
-            if (any(lessThan(unit_position, world_min))
-            || any(greaterThanEqual(unit_position, world_max))) break;
+            if (any(lessThan(cell_position, world_min))
+            || any(greaterThan(cell_position, world_max))) break;
 
-            vec4 unit_color = get_unit_color(ivec3(unit_position));
+            vec4 cell_color = get_cell_color(ivec3(cell_position));
 
-            if (unit_color.a > 0.01) {
-                float alpha = unit_color.a * (1.0 - ray_color.a);
-                ray_color += vec4(unit_color.rgb * alpha, alpha);
+            if (cell_color.a > 0.01) {
+                float alpha = cell_color.a * (1.0 - ray_color.a);
+                ray_color += vec4(cell_color.rgb * alpha, alpha);
                 if (ray_color.a >= 0.99) break;
             }
 
@@ -96,7 +94,7 @@ void main() {
             if (mask.x > 0.0) mask.yz = vec2(0.0);
             else if (mask.y > 0.0) mask.z = 0.0;
             next_boundary += mask * step_size;
-            unit_position += mask * step_forward;
+            cell_position += mask * step_forward;
         }
     }
 
