@@ -30,7 +30,7 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(16, 16, 16)
+        self.WORLD_SHAPE = Vec3(21, 21, 21)
         # Это должно быть константой, так как на этом построена логика
         self.CELL_SHAPE_D = 4
         self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])

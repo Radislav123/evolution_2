@@ -349,7 +349,6 @@ class World(PhysicalObject):
             write_ids = self.texture_infos[1][0]
         else:
             write_ids = self.texture_infos[0][0]
-
         chunk_index = 0
 
         packed_world = np.empty((*self.unit_shape, 4), dtype = np.uint32)
@@ -361,6 +360,7 @@ class World(PhysicalObject):
         packed_world[..., 1] = (np.uint32(zero_offset)
                                 | (np.uint32(zero_offset) << 10)
                                 | (np.uint32(zero_offset) << 20))
+        packed_world = np.ascontiguousarray(packed_world.swapaxes(0, 2))
 
         gl.glTextureSubImage3D(
             write_ids[chunk_index],
@@ -430,20 +430,16 @@ class World(PhysicalObject):
     # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.
     def generate_sphere(self, radius: float = None) -> None:
         if radius is None:
-            radius = max(sum(self.unit_shape) / 2 / 3, 1)
-        index_z, index_y, index_x = np.indices(self.unit_shape)
-        in_center = True
-        if in_center:
-            point_radius = np.maximum(
-                np.sqrt(
-                    (self.unit_shape.x / 2 - index_x) ** 2
-                    + (self.unit_shape.y / 2 - index_y) ** 2
-                    + (self.unit_shape.z / 2 - index_z) ** 2
-                ),
-                1
-            )
-        else:
-            point_radius = np.maximum(np.sqrt(index_x ** 2 + index_y ** 2 + index_z ** 2), 1)
+            radius = max(min(self.unit_shape) / 2, 1)
+        index_x, index_y, index_z = np.indices(self.unit_shape)
+        point_radius = np.maximum(
+            np.sqrt(
+                ((self.unit_shape.x - self.cell_shape.x) / 2 - index_x) ** 2
+                + ((self.unit_shape.y - self.cell_shape.y) / 2 - index_y) ** 2
+                + ((self.unit_shape.z - self.cell_shape.z) / 2 - index_z) ** 2
+            ),
+            1
+        )
         mask = point_radius <= radius
 
         quantities = (1000 * (radius - point_radius) // radius).astype(np.uint16)
@@ -469,3 +465,5 @@ class World(PhysicalObject):
         # self.quantities[:] = 0
         # self.substances[*(self.center * self.cell_shape)] = 1
         # self.quantities[*(self.center * self.cell_shape)] = 1000
+        # self.substances[0, :, :] = 1
+        # self.quantities[0, :, :] = 10000
