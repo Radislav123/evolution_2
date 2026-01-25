@@ -14,6 +14,10 @@ T = TypeVar("T")
 ShaderReplacements = dict[str, Any]
 
 
+class UniformSetError(Exception):
+    pass
+
+
 def float_range(start: float, stop: float, step: float) -> Iterator[float]:
     return takewhile(lambda x: x < stop, count(start, step))
 
@@ -61,8 +65,8 @@ def write_uniforms(program: ShaderProgram | ComputeShaderProgram, uniforms: dict
         try:
             program[key] = value
         except ShaderException as error:
-            if raise_error or f"A Uniform with the name `{key}` was not found." not in str(error):
-                raise error
+            if raise_error:
+                raise UniformSetError(f"{key} was not set") from error
             # Предупреждение можно не показывать, если это, к примеру, переменная из #include,
             # а #include подключается по условию (как get_unit_color для fragment.glsl)
             if show_warning:

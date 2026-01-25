@@ -24,6 +24,31 @@ OpenGLIds = tuple[ctypes.c_uint, ...]
 OpenGLHandles = npt.NDArray[np.uint64]
 
 
+class CameraBuffer(ctypes.Structure):
+    gl_id = gl.GLuint()
+    _fields_ = [
+        ("u_view_position", gl.GLfloat * 3),
+        ("u_padding_1", gl.GLint),
+        ("u_view_forward", gl.GLfloat * 3),
+        ("u_padding_2", gl.GLint),
+        ("u_view_right", gl.GLfloat * 3),
+        ("u_padding_3", gl.GLint),
+        ("u_view_up", gl.GLfloat * 3),
+        ("u_zoom", gl.GLfloat),
+        # Всегда дополнять до кратности 16 байт
+        # ("u_padding_0", gl.GLint * 0)
+    ]
+
+
+class PhysicsBuffer(ctypes.Structure):
+    gl_id = gl.GLuint()
+    _fields_ = [
+        ("u_world_age", gl.GLuint),
+        # Всегда дополнять до кратности 16 байт
+        ("u_padding_0", gl.GLint * 3)
+    ]
+
+
 class WorldProjection(ProjectionObject):
     def __init__(self, world: World) -> None:
         super().__init__()
@@ -71,6 +96,9 @@ class WorldProjection(ProjectionObject):
             "u_test_color_cube_end": (self.settings.TEST_COLOR_CUBE_END, False, False)
         }
         write_uniforms(self.program, uniforms)
+
+        self.camera_buffer = CameraBuffer()
+        self.init_camera_buffer()
 
         self.scene_vertices = self.program.vertex_list(
             4,
@@ -135,6 +163,17 @@ class WorldProjection(ProjectionObject):
 
         write_uniforms(self.program, {"u_absorption": (1, False, False)})
 
+    def init_camera_buffer(self) -> None:
+        gl.glCreateBuffers(1, self.camera_buffer.gl_id)
+        gl.glNamedBufferStorage(
+            self.camera_buffer.gl_id,
+            ctypes.sizeof(self.camera_buffer),
+            ctypes.byref(self.camera_buffer),
+            gl.GL_DYNAMIC_STORAGE_BIT
+        )
+
+        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 3, self.camera_buffer.gl_id)
+
     def start(self) -> None:
         pass
 
@@ -142,12 +181,19 @@ class WorldProjection(ProjectionObject):
         if draw_voxels:
             self.program.use()
 
-            # performance: обновлять переменные через буфер (записывать их в буфер)
-            self.program["u_view_position"] = self.window.projector.view.position
-            self.program["u_view_forward"] = self.window.projector.view.forward
-            self.program["u_view_right"] = self.window.projector.view.right
-            self.program["u_view_up"] = self.window.projector.view.up
-            self.program["u_zoom"] = self.window.projector.view.zoom
+            if self.window.projector.changed:
+                self.camera_buffer.u_view_position = self.window.projector.view.position
+                self.camera_buffer.u_view_forward = self.window.projector.view.forward
+                self.camera_buffer.u_view_right = self.window.projector.view.right
+                self.camera_buffer.u_view_up = self.window.projector.view.up
+                self.camera_buffer.u_zoom = self.window.projector.view.zoom
+                gl.glNamedBufferSubData(
+                    self.camera_buffer.gl_id,
+                    0,
+                    ctypes.sizeof(self.camera_buffer),
+                    ctypes.byref(self.camera_buffer)
+                )
+                self.window.projector.changed = False
 
             self.scene_vertices.draw(gl.GL_TRIANGLE_STRIP)
 
@@ -192,8 +238,9 @@ class World(PhysicalObject):
                 }
             )
         )
+        self.physics_buffer = PhysicsBuffer()
+        self.init_physics_buffer()
 
-        self.set_texture_settings()
         # ((texture_ids, handles_read_buffer_id, handles_write_buffer_id), (texture_ids, handles_read_buffer_id, handles_write_buffer_id))
         self.texture_infos = (self.init_textures(), self.init_textures())
         # True - нулевая для чтения, первая для записи
@@ -201,12 +248,13 @@ class World(PhysicalObject):
         self.texture_state = True
         self.bind_textures()
 
-        # todo: Для uniform-ов использовать Uniform Buffer Object (UBO)?
         uniforms = {
-            "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, True, True),
+            # todo: вернуть True, True?
+            "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, False, False),
 
             "u_world_unit_shape": (self.unit_shape, True, True),
-            "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
+            # todo: вернуть True, True?
+            "u_gravity_vector": (self.settings.GRAVITY_VECTOR, False, False)
         }
         write_uniforms(self.physics_shader, uniforms)
 
@@ -216,13 +264,16 @@ class World(PhysicalObject):
 
         self.textures_writen = False
 
-    @staticmethod
-    def set_texture_settings() -> None:
-        # performance: Этот параметр замедляет запись и чтение, но убирает необходимость в выравнивании.
-        #  Убрать его, но выровнять все передаваемые текстуры по 4 байта?
-        #  Перед тем как удалить его из кода, убедиться в том,
-        #  что это действительно положительно влияет на производительность.
-        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+    def init_physics_buffer(self) -> None:
+        gl.glCreateBuffers(1, self.physics_buffer.gl_id)
+        gl.glNamedBufferStorage(
+            self.physics_buffer.gl_id,
+            ctypes.sizeof(self.physics_buffer),
+            ctypes.byref(self.physics_buffer),
+            gl.GL_DYNAMIC_STORAGE_BIT
+        )
+
+        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 2, self.physics_buffer.gl_id)
 
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
     def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint]:
@@ -263,7 +314,9 @@ class World(PhysicalObject):
             write_handles[index] = write_handle
 
         read_buffer_id = gl.GLuint()
+        # todo: replace all glGenBuffers with glCreateBuffers?
         gl.glGenBuffers(1, read_buffer_id)
+        # todo: replace all glBindBuffer with glNamedBufferStorage?
         gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, read_buffer_id)
         gl.glBufferData(
             gl.GL_SHADER_STORAGE_BUFFER,
@@ -348,9 +401,6 @@ class World(PhysicalObject):
 
     def compute_physics(self) -> None:
         self.physics_shader.use()
-        # todo: Убедиться, что данные успевают обновиться
-        #  поставить барьер?
-        self.physics_shader["u_world_age"] = self.age
 
         gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
@@ -369,6 +419,14 @@ class World(PhysicalObject):
         # todo: move to start or init?
         if not self.textures_writen:
             self.write_textures()
+
+        self.physics_buffer.u_world_age = self.age
+        gl.glNamedBufferSubData(
+            self.physics_buffer.gl_id,
+            0,
+            ctypes.sizeof(self.physics_buffer),
+            ctypes.byref(self.physics_buffer)
+        )
 
         self.compute_creatures()
         self.compute_physics()

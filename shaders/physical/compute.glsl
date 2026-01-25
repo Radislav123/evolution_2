@@ -25,8 +25,12 @@ uniform ivec3 u_world_unit_shape;
 uniform vec3 u_gravity_vector;
 
 // Переменные, которые могу меняться каждый кадр
-// При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции (int хватит на 24.85 суток)
-uniform int u_world_age;
+// Порядок и дополнения до 16 байт должны совпадать с тем, что обхявлено в python-коде
+layout(std140, binding = 3) uniform CameraBuffer {
+// При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции
+    int u_world_age;
+    ivec3 u_padding_0;
+};
 
 
 layout(std430, binding = 0) readonly restrict buffer WorldRead {
@@ -79,12 +83,6 @@ uvec4 pack_unit(Unit unit) {
 
 
 void main() {
-    // todo: remove stubs;
-    u_world_update_period;
-    u_world_unit_shape;
-    u_gravity_vector;
-    u_world_age;
-
     // Позиция юнита в текстуре
     ivec3 global_position = ivec3(gl_GlobalInvocationID);
     // Позиция юнита в ячейке

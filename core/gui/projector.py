@@ -50,6 +50,8 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.right = self.centralized_right
         self.up = self.centralized_up
 
+        self.projector.changed = True
+
     # Перемещает камеру вправо/влево и вверх/вниз относительно направления взгляда и верха
     def pan(self, offset_x: float, offset_y: float) -> None:
         distance = abs(self.position.dot(self.forward))
@@ -59,9 +61,13 @@ class ProjectCameraData(CameraData, ProjectMixin):
         offset = (self.right * -offset_x + self.up * -offset_y) * world_unit_per_pixel
         self.position = self.position + offset
 
+        self.projector.changed = True
+
     # Перемещает камеру вперед/назад относительно направления взгляда
     def dolly(self, offset_z: float) -> None:
         self.position += self.forward * offset_z
+
+        self.projector.changed = True
 
     # Меняет зум и сдвигает картинку относительно курсора
     def change_zoom(self, offset: float) -> None:
@@ -71,6 +77,8 @@ class ProjectCameraData(CameraData, ProjectMixin):
             min(self.zoom + zoom_offset, self.settings.CAMERA_MAX_ZOOM),
             self.settings.CAMERA_MIN_ZOOM
         )
+
+        self.projector.changed = True
 
     # Вращает камеру вокруг точки перед ней на расстоянии rotation_radius
     def rotate(self, offset_x: float, offset_y: float) -> None:
@@ -100,6 +108,8 @@ class ProjectCameraData(CameraData, ProjectMixin):
         self.forward, self.up = arcade.camera.grips.look_at(self, pivot)
         self.right = self.forward.cross(self.up).normalize()
 
+        self.projector.changed = True
+
 
 class ProjectPerspectiveProjectionData(PerspectiveProjectionData, ProjectMixin):
     def __init__(self, projector: "ProjectProjector") -> None:
@@ -123,6 +133,9 @@ class ProjectProjector(PerspectiveProjector, ProjectMixin):
         camera_data = ProjectCameraData(self)
         projection = ProjectPerspectiveProjectionData(self)
         super().__init__(window = window, view = camera_data, projection = projection)
+
+        # Показывает, была ли изменена проекция с последней отрисовки
+        self.changed = True
 
     def init(self) -> None:
         # noinspection PyTypeChecker
