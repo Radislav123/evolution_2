@@ -164,7 +164,7 @@ class WorldProjection(ProjectionObject):
         write_uniforms(self.program, {"u_absorption": (1, False, False)})
 
     def init_camera_buffer(self) -> None:
-        gl.glCreateBuffers(1, self.camera_buffer.gl_id)
+        gl.glCreateBuffers(1, ctypes.byref(self.camera_buffer.gl_id))
         gl.glNamedBufferStorage(
             self.camera_buffer.gl_id,
             ctypes.sizeof(self.camera_buffer),
@@ -265,7 +265,7 @@ class World(PhysicalObject):
         self.textures_writen = False
 
     def init_physics_buffer(self) -> None:
-        gl.glCreateBuffers(1, self.physics_buffer.gl_id)
+        gl.glCreateBuffers(1, ctypes.byref(self.physics_buffer.gl_id))
         gl.glNamedBufferStorage(
             self.physics_buffer.gl_id,
             ctypes.sizeof(self.physics_buffer),
@@ -313,26 +313,23 @@ class World(PhysicalObject):
             gl.glMakeImageHandleResidentARB(write_handle, gl.GL_WRITE_ONLY)
             write_handles[index] = write_handle
 
-        read_buffer_id = gl.GLuint()
-        # todo: replace all glGenBuffers with glCreateBuffers?
-        gl.glGenBuffers(1, read_buffer_id)
-        # todo: replace all glBindBuffer with glNamedBufferStorage?
-        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, read_buffer_id)
-        gl.glBufferData(
-            gl.GL_SHADER_STORAGE_BUFFER,
+        buffer_ids = (gl.GLuint * 2)()
+        gl.glCreateBuffers(2, buffer_ids)
+
+        read_buffer_id = buffer_ids[0]
+        gl.glNamedBufferStorage(
+            read_buffer_id,
             read_handles.nbytes,
             read_handles.ctypes.data,
-            gl.GL_STREAM_DRAW
+            gl.GL_DYNAMIC_STORAGE_BIT
         )
 
-        write_buffer_id = gl.GLuint()
-        gl.glGenBuffers(1, write_buffer_id)
-        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, write_buffer_id)
-        gl.glBufferData(
-            gl.GL_SHADER_STORAGE_BUFFER,
+        write_buffer_id = buffer_ids[1]
+        gl.glNamedBufferStorage(
+            write_buffer_id,
             write_handles.nbytes,
             write_handles.ctypes.data,
-            gl.GL_STREAM_DRAW
+            gl.GL_DYNAMIC_STORAGE_BIT
         )
 
         return tuple(texture_ids), read_buffer_id, write_buffer_id
@@ -392,7 +389,6 @@ class World(PhysicalObject):
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 0, read_buffer_id)
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 1, write_buffer_id)
 
-        gl.glBindBuffer(gl.GL_SHADER_STORAGE_BUFFER, 0)
         self.texture_state = not self.texture_state
 
     def compute_creatures(self) -> None:
