@@ -26,7 +26,7 @@ uniform vec3 u_gravity_vector;
 
 // Переменные, которые могу меняться каждый кадр
 // Порядок и дополнения до 16 байт должны совпадать с тем, что обхявлено в python-коде
-layout(std140, binding = 3) uniform CameraBuffer {
+layout(std140, binding = 2) uniform PhysicsBuffer {
 // При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции
     int u_world_age;
     ivec3 u_padding_0;
@@ -104,5 +104,11 @@ void main() {
     barrier();
 
     Unit unit = unpack_unit(cell_cache[0][local_index]);
+
+    unit.momentum += u_gravity_vector * u_world_update_period;
+    if (u_world_age % 100 == 0) {
+        global_position = (global_position + ivec3(sign(unit.momentum)) + u_world_unit_shape) % u_world_unit_shape;
+    }
+
     imageStore(u_world_write.handles[chunk_index], global_position, pack_unit(unit));
 }
