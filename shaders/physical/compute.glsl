@@ -25,8 +25,8 @@ uniform ivec3 u_world_unit_shape;
 uniform vec3 u_gravity_vector;
 
 // Переменные, которые могу меняться каждый кадр
-// При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции
-uniform uint u_world_age;
+// При tps == 1000 uint32 хватит примерно на 49.7 суток непрерывной симуляции (int хватит на 24.85 суток)
+uniform int u_world_age;
 
 
 layout(std430, binding = 0) readonly restrict buffer WorldRead {

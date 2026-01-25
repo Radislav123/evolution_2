@@ -90,6 +90,16 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.ui_manager.add(common_layout)
 
     def start(self) -> None:
+        features_to_disable = (
+            gl.GL_DEPTH_TEST,
+            gl.GL_STENCIL_TEST,
+            gl.GL_CULL_FACE,
+            gl.GL_BLEND,
+            gl.GL_MULTISAMPLE
+        )
+        for feature in features_to_disable:
+            gl.glDisable(feature)
+
         self.ui_manager.enable()
         self.world = World(self)
 

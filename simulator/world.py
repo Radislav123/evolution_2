@@ -4,11 +4,10 @@ import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
-import arcade
 import numpy as np
 import numpy.typing as npt
-from arcade.gl import BufferDescription
 from pyglet import gl
+from pyglet.graphics.shader import ComputeShaderProgram, Shader, ShaderProgram
 
 from core.service.colors import ProjectColors
 from core.service.functions import load_shader, write_uniforms
@@ -33,19 +32,25 @@ class WorldProjection(ProjectionObject):
         self.window = self.world.window
         self.ctx = self.window.ctx
 
-        self.program = self.ctx.program(
-            vertex_shader = load_shader(f"{self.settings.SHADERS}/projectional/vertex.glsl"),
-            fragment_shader = load_shader(
-                f"{self.settings.SHADERS}/projectional/fragment.glsl",
-                {
-                    "color_function_path": (
-                        f"{self.settings.SHADERS}/projectional/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
-                        {}
-                    )
-                },
-                {
-                    "cell_size_d": self.settings.CELL_SHAPE_D
-                }
+        self.program = ShaderProgram(
+            Shader(
+                load_shader(f"{self.settings.SHADERS}/projectional/vertex.glsl"),
+                "vertex"
+            ),
+            Shader(
+                load_shader(
+                    f"{self.settings.SHADERS}/projectional/fragment.glsl",
+                    {
+                        "color_function_path": (
+                            f"{self.settings.SHADERS}/projectional/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
+                            {}
+                        )
+                    },
+                    {
+                        "cell_size_d": self.settings.CELL_SHAPE_D
+                    }
+                ),
+                "fragment"
             )
         )
 
@@ -67,7 +72,11 @@ class WorldProjection(ProjectionObject):
         }
         write_uniforms(self.program, uniforms)
 
-        self.scene = arcade.gl.geometry.quad_2d_fs()
+        self.scene_vertices = self.program.vertex_list(
+            4,
+            gl.GL_TRIANGLE_STRIP,
+            in_vertex_position = ('f', (-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0))
+        )
         self.need_update = True
 
     def init_color_texture(self) -> None:
@@ -96,7 +105,7 @@ class WorldProjection(ProjectionObject):
             Substance.colors.ctypes.data
         )
 
-        self.program.set_uniform_safe("u_colors", 0)
+        write_uniforms(self.program, {"u_colors": (0, False, False)})
 
     def init_absorption_texture(self) -> None:
         texture_id = gl.GLuint()
@@ -124,13 +133,15 @@ class WorldProjection(ProjectionObject):
             Substance.absorptions.ctypes.data
         )
 
-        self.program.set_uniform_safe("u_absorption", 1)
+        write_uniforms(self.program, {"u_absorption": (1, False, False)})
 
     def start(self) -> None:
         pass
 
     def on_draw(self, draw_voxels: bool) -> None:
         if draw_voxels:
+            self.program.use()
+
             # performance: обновлять переменные через буфер (записывать их в буфер)
             self.program["u_view_position"] = self.window.projector.view.position
             self.program["u_view_forward"] = self.window.projector.view.forward
@@ -138,9 +149,7 @@ class WorldProjection(ProjectionObject):
             self.program["u_view_up"] = self.window.projector.view.up
             self.program["u_zoom"] = self.window.projector.view.zoom
 
-            # Поставить, если будет неправильное отображение
-            # gl.glMemoryBarrier(gl.GL_TEXTURE_FETCH_BARRIER_BIT)
-            self.scene.render(self.program)
+            self.scene_vertices.draw(gl.GL_TRIANGLE_STRIP)
 
 
 class World(PhysicalObject):
@@ -174,8 +183,8 @@ class World(PhysicalObject):
         self.substances = np.zeros(self.unit_shape, dtype = np.uint16)
         self.quantities = np.zeros(self.unit_shape, dtype = np.uint16)
 
-        self.compute_shader = self.ctx.compute_shader(
-            source = load_shader(
+        self.physics_shader = ComputeShaderProgram(
+            load_shader(
                 f"{self.settings.SHADERS}/physical/compute.glsl",
                 None,
                 {
@@ -192,13 +201,14 @@ class World(PhysicalObject):
         self.texture_state = True
         self.bind_textures()
 
+        # todo: Для uniform-ов использовать Uniform Buffer Object (UBO)?
         uniforms = {
             "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, True, True),
 
             "u_world_unit_shape": (self.unit_shape, True, True),
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, True, True)
         }
-        write_uniforms(self.compute_shader, uniforms)
+        write_uniforms(self.physics_shader, uniforms)
 
         self.thread_executor = ThreadPoolExecutor(self.settings.CPU_COUNT)
         self.prepare()
@@ -333,7 +343,17 @@ class World(PhysicalObject):
         self.texture_state = not self.texture_state
 
     def compute_creatures(self) -> None:
+        # gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         pass
+
+    def compute_physics(self) -> None:
+        self.physics_shader.use()
+        # todo: Убедиться, что данные успевают обновиться
+        #  поставить барьер?
+        self.physics_shader["u_world_age"] = self.age
+
+        gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
 
     # todo: Добавить зацикливание мира по xy
     # performance: Numba @njit(parallel=True)
@@ -346,49 +366,12 @@ class World(PhysicalObject):
             # это нужно для проброса исключения из потока
             future.result()
 
+        # todo: move to start or init?
         if not self.textures_writen:
             self.write_textures()
-        self.compute_shader["u_world_age"] = self.age
 
-        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
         self.compute_creatures()
-
-        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
-        # todo: заменить run (и render в projection) на самостоятельный вызов opengl,
-        #  чтобы самостоятельно управлять барьерами
-        self.compute_shader.run(*self.settings.WORLD_SHAPE)
-
-        if self.age % 100 == 0:
-            gl.glMemoryBarrier(
-                gl.GL_ALL_BARRIER_BITS | gl.GL_ALL_SHADER_BITS | gl.GL_TEXTURE_FETCH_BARRIER_BIT | gl.GL_TEXTURE_UPDATE_BARRIER_BIT
-            )
-            # 4 - количество каналов в текстуре?
-            size = self.subcell_count * 4  # Общее количество uint32
-            buffer = (gl.GLuint * size)()
-
-            if self.texture_state:
-                bind_index = 0
-            else:
-                bind_index = 1
-            gl.glBindTexture(gl.GL_TEXTURE_3D, self.texture_infos[bind_index][0][0])
-
-            # Читаем данные из GPU в CPU
-            gl.glGetTexImage(
-                gl.GL_TEXTURE_3D,
-                0,  # level
-                gl.GL_RGBA_INTEGER,  # формат (для UI текстур обязательно _INTEGER)
-                gl.GL_UNSIGNED_INT,  # тип данных
-                buffer  # куда записать
-            )
-
-            # Превращаем в NumPy (без копирования памяти)
-            world_array = np.frombuffer(buffer, dtype = np.uint32).reshape(*self.unit_shape, 4)
-            print("------------------------")
-            data = world_array[self.center.z * self.cell_shape.z, self.center.y * self.cell_shape.y, :, 0]
-            substances = [int(x & 0x7FFF) for x in data]
-            quantities = [int((x >> 15) & 0x7FFF) for x in data]
-            print(substances)
-            print(quantities)
+        self.compute_physics()
 
         self.age += self.settings.WORLD_UPDATE_PERIOD
         self.bind_textures()

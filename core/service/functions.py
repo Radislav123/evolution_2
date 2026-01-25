@@ -1,7 +1,7 @@
 from itertools import count, takewhile
 from typing import Any, Iterator, Type, TypeVar
 
-from arcade.gl import ComputeShader, Program
+from pyglet.graphics.shader import ComputeShaderProgram, ShaderException, ShaderProgram
 
 from core.service.logger import Logger
 from core.service.settings import Settings
@@ -56,13 +56,12 @@ def load_shader(
     return code_source
 
 
-def write_uniforms(program: Program | ComputeShader, uniforms: dict[str, tuple[Any, bool, bool]]) -> None:
+def write_uniforms(program: ShaderProgram | ComputeShaderProgram, uniforms: dict[str, tuple[Any, bool, bool]]) -> None:
     for key, (value, raise_error, show_warning) in uniforms.items():
         try:
             program[key] = value
-        except KeyError as error:
-            program.set_uniform_safe(key, value)
-            if raise_error:
+        except ShaderException as error:
+            if raise_error or f"A Uniform with the name `{key}` was not found." not in str(error):
                 raise error
             # Предупреждение можно не показывать, если это, к примеру, переменная из #include,
             # а #include подключается по условию (как get_unit_color для fragment.glsl)
