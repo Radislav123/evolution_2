@@ -30,7 +30,7 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(5, 5, 5)
+        self.WORLD_SHAPE = Vec3(16, 16, 16)
         # Это должно быть константой, так как на этом построена логика
         self.CELL_SHAPE_D = 4
         self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])
@@ -64,7 +64,7 @@ class Settings(Singleton):
         self.BUTTON_UPDATE_PERIOD = 0.5
 
         self.MAX_FPS = 60
-        self.MAX_TPS = 100
+        self.MAX_TPS = 1000
 
         self.BUFFER_INDEXES = set()
 

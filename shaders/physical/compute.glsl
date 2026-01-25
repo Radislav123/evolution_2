@@ -41,6 +41,9 @@ layout(std430, binding = 1) writeonly restrict buffer WorldWrite {
 } u_world_write;
 
 const float zero_offset_10_bit = pow(2, 10 - 1);
+const uint mask_9_bit  = (1u << 9) - 1u;
+const uint mask_10_bit = (1u << 10) - 1u;
+const uint mask_15_bit = (1u << 15) - 1u;
 // Коэффициент поправки необходим для более точного хранения
 const float momentum_coeff = 100.0;
 
@@ -71,12 +74,12 @@ Unit unpack_unit(uvec4 packed_unit) {
 uvec4 pack_unit(Unit unit) {
     uvec4 packed_unit = uvec4(0);
 
-    packed_unit.r = unit.substance | (unit.quantity << 15);
+    packed_unit.r = (unit.substance & mask_15_bit) | ((unit.quantity & mask_15_bit) << 15);
 
-    uvec3 casted_momentum = uvec3(unit.momentum * momentum_coeff + zero_offset_10_bit);
-    packed_unit.g = casted_momentum.x
-    | (casted_momentum.y << 10)
-    | (casted_momentum.z << 20);
+    uvec3 casted_momentum = uvec3(clamp(unit.momentum * momentum_coeff + zero_offset_10_bit, 0.0, float(mask_10_bit)));
+    packed_unit.g = (casted_momentum.x & mask_10_bit)
+    | ((casted_momentum.y & mask_10_bit) << 10)
+    | ((casted_momentum.z & mask_10_bit) << 20);
 
     return packed_unit;
 }
@@ -90,8 +93,8 @@ void main() {
     int local_index = int(gl_LocalInvocationIndex);
     uint chunk_index = 0;
 
-    // todo: Переписать под новый вариант хранения кэша
-    // todo: Во втором слое завести счетчик, показывающий сколько юнитов заполнено
+    // performance: Считывать данные своего юнита, определять направление момента, на основе этого определять, какие соседи нужны, и грузить только необходимых соседей?
+    // performance: Во втором слое завести счетчик, показывающий сколько юнитов заполнено
     for (uint cell_index = 0; cell_index < 7; cell_index++) {
         ivec3 read_position = (global_position + cell_offsets[cell_index] + u_world_unit_shape) % u_world_unit_shape;
         cell_cache[cell_index][local_index] = texelFetch(u_world_read.handles[chunk_index], read_position, 0);

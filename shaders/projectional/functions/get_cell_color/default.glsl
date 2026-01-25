@@ -36,7 +36,7 @@ vec4 get_cell_color(ivec3 cell_position) {
 
     // u_world[0] - текстура для чтения
     // u_world[1] - текстура для записи, которая в данном шейдере не используется
-    // todo: Во втором слое завести счетчик, показывающий сколько юнитов заполнено
+    // todo: Во втором слое завести счетчик, показывающий сколько юнитов заполнено, и исправить ограничение unit_index < cell_size
     for (int unit_index = 0; unit_index < cell_size; unit_index++) {
         // Позиция юнита в ячейке
         ivec3 local_position = ivec3(unit_index & 3, (unit_index >> 2) & 3, unit_index >> 4);

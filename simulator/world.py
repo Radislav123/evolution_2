@@ -401,9 +401,6 @@ class World(PhysicalObject):
         gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
 
-    # todo: Добавить зацикливание мира по xy
-    # performance: Numba @njit(parallel=True)
-    # performance: У numpy есть where, возможно он поможет не обновлять весь мир разом, а только активные ячейки
     def on_update(self) -> None:
         futures = []
         for _ in []:
