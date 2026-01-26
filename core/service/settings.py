@@ -37,7 +37,7 @@ class Settings(Singleton):
         self.WORLD_UNIT_SHAPE = self.WORLD_SHAPE * self.CELL_SHAPE
         self.CHUNK_COUNT = 1
 
-        self.OPTICAL_DENSITY_SCALE = 0.0001
+        self.OPTICAL_DENSITY_SCALE = 0.001
 
         self.GRAVITY_VECTOR = Vec3(0.01, 0, 0)
 
