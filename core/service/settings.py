@@ -24,6 +24,8 @@ class Settings(Singleton):
         self.RESOURCES = "resources"
         self.IMAGES = f"{self.RESOURCES}/images"
         self.SHADERS = f"shaders"
+        self.PHYSICAL_SHADERS = f"{self.SHADERS}/physical"
+        self.PROJECTIONAL_SHADERS = f"{self.SHADERS}/projectional"
         self.CPU_COUNT = os.cpu_count()
 
         self.SHADER_ENCODING = "utf-8"
@@ -31,6 +33,9 @@ class Settings(Singleton):
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
         self.WORLD_SHAPE = Vec3(21, 21, 21)
+        # Это должно быть константой, так как на этом построена логика
+        self.BLOCK_SHAPE_D = 2
+        self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
         # Это должно быть константой, так как на этом построена логика
         self.CELL_SHAPE_D = 4
         self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])
@@ -83,5 +88,7 @@ class Settings(Singleton):
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")
 
+        if self.BLOCK_SHAPE_D != 2:
+            raise SettingError(f"BLOCK_SHAPE_D ({self.BLOCK_SHAPE_D}) must be 2")
         if self.CELL_SHAPE_D != 4:
             raise SettingError(f"CELL_SHAPE_D ({self.CELL_SHAPE_D}) must be 4")

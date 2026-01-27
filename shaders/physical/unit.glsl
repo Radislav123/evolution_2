@@ -2,6 +2,7 @@
 #extension GL_ARB_bindless_texture : require
 
 const ivec3 cell_shape = ivec3(cell_size_d, cell_size_d, cell_size_d);
+const ivec3 block_shape = ivec3(block_size_d, block_size_d, block_size_d);
 const int cell_size = cell_shape.x * cell_shape.y * cell_shape.z;
 
 layout(local_size_x = cell_shape.x, local_size_y = cell_shape.y, local_size_z = cell_shape.z) in;
@@ -50,53 +51,18 @@ layout(std430, binding = 0) readonly restrict buffer WorldRead {
 layout(std430, binding = 1) writeonly restrict buffer WorldCellWrite {
     uimage3D handles[];
 } u_world_cell_write;
-layout(std430, binding = 2) writeonly restrict buffer WorldUnitWrite {
+layout(std430, binding = 2) writeonly restrict buffer WorldBlockWrite {
+    uimage3D handles[];
+} u_world_block_write;
+layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
     uimage3D handles[];
 } u_world_unit_write;
 
-const float zero_offset_10_bit = pow(2, 10 - 1);
-const uint mask_9_bit  = (1u << 9) - 1u;
-const uint mask_10_bit = (1u << 10) - 1u;
-const uint mask_15_bit = (1u << 15) - 1u;
-// Коэффициент поправки необходим для более точного хранения
-const float momentum_coeff = 100.0;
 
-
-struct Unit {
-    uint substance;
-    uint quantity;
-    vec3 momentum;
-};
-
-Unit unpack_unit(uvec4 packed_unit) {
-    Unit unit;
-
-    unit.substance = bitfieldExtract(packed_unit.r, 0, 15);
-    unit.quantity = bitfieldExtract(packed_unit.r, 15, 15);
-
-    // momentum - импульс одной молекулы вещества
-    unit.momentum = (vec3(
-    bitfieldExtract(packed_unit.g, 0, 10),
-    bitfieldExtract(packed_unit.g, 10, 10),
-    bitfieldExtract(packed_unit.g, 20, 10)
-    ) - zero_offset_10_bit) / momentum_coeff;
-
-    return unit;
-}
-
-// todo: Внедрить проверку на переполнение записываемых величин
-uvec4 pack_unit(Unit unit) {
-    uvec4 packed_unit = uvec4(0);
-
-    packed_unit.r = (unit.substance & mask_15_bit) | ((unit.quantity & mask_15_bit) << 15);
-
-    uvec3 casted_momentum = uvec3(clamp(unit.momentum * momentum_coeff + zero_offset_10_bit, 0.0, float(mask_10_bit)));
-    packed_unit.g = (casted_momentum.x & mask_10_bit)
-    | ((casted_momentum.y & mask_10_bit) << 10)
-    | ((casted_momentum.z & mask_10_bit) << 20);
-
-    return packed_unit;
-}
+#include physical_constants
+#include packing_constants
+#include cell
+#include unit
 
 
 void main() {
@@ -135,7 +101,7 @@ void main() {
 
     unit.momentum += u_gravity_vector * u_world_update_period;
     if (u_world_age % 100 == 0) {
-//        global_position = (global_position + ivec3(sign(unit.momentum)) * cell_shape + u_world_unit_shape) % u_world_unit_shape;
+        //        global_unit_position = (global_unit_position + ivec3(sign(unit.momentum)) * cell_shape + u_world_unit_shape) % u_world_unit_shape;
     }
 
     imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

@@ -59,15 +59,15 @@ class WorldProjection(ProjectionObject):
 
         self.program = ShaderProgram(
             Shader(
-                load_shader(f"{self.settings.SHADERS}/projectional/vertex.glsl"),
+                load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/vertex.glsl"),
                 "vertex"
             ),
             Shader(
                 load_shader(
-                    f"{self.settings.SHADERS}/projectional/fragment.glsl",
+                    f"{self.settings.PROJECTIONAL_SHADERS}/fragment.glsl",
                     {
                         "color_function_path": (
-                            f"{self.settings.SHADERS}/projectional/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
+                            f"{self.settings.PROJECTIONAL_SHADERS}/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
                             {}
                         )
                     },
@@ -230,12 +230,31 @@ class World(PhysicalObject):
         self.quantities = np.zeros(self.unit_shape, dtype = np.uint16)
         self.sphere_mask = np.zeros(self.unit_shape, dtype = np.uint16)
 
+        shader_includes = {
+            "physical_constants": (
+                f"{self.settings.PHYSICAL_SHADERS}/constants/physical.glsl",
+                {}
+            ),
+            "packing_constants": (
+                f"{self.settings.PHYSICAL_SHADERS}/constants/packing.glsl",
+                {}
+            ),
+            "cell": (
+                f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl",
+                {}
+            ),
+            "unit": (
+                f"{self.settings.PHYSICAL_SHADERS}/components/unit.glsl",
+                {}
+            )
+        }
         self.physics_shader = ComputeShaderProgram(
             load_shader(
-                f"{self.settings.SHADERS}/physical/compute.glsl",
-                None,
+                f"{self.settings.PHYSICAL_SHADERS}/unit.glsl",
+                shader_includes,
                 {
-                    "cell_size_d": self.settings.CELL_SHAPE_D
+                    "cell_size_d": self.settings.CELL_SHAPE_D,
+                    "block_size_d": self.settings.BLOCK_SHAPE_D
                 }
             )
         )
@@ -243,14 +262,14 @@ class World(PhysicalObject):
         self.init_physics_buffer()
 
         # (
-        #   (texture_ids, handles_read_buffer_id, handles_write_cell_buffer_id, handles_write_unit_buffer_id),
-        #   (texture_ids, handles_read_buffer_id, handles_write_cell_buffer_id, handles_write_unit_buffer_id)
+        #   (texture_ids, handles_read_buffer_id, handles_write_cell_buffer_id, handles_write_block_buffer_id, handles_write_unit_buffer_id),
+        #   (texture_ids, handles_read_buffer_id, handles_write_cell_buffer_id, handles_write_block_buffer_id, handles_write_unit_buffer_id),
         # )
         self.texture_infos = (self.init_textures(), self.init_textures())
         # True - нулевая для чтения, первая для записи
         # False - первая для чтения, нулевая для записи
         self.texture_state = True
-        self.bind_textures()
+        self.swap_textures()
 
         uniforms = {
             # todo: вернуть True, True?
@@ -281,9 +300,10 @@ class World(PhysicalObject):
         gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 2, self.physics_buffer.gl_id)
 
     # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
-    def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint]:
+    def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint]:
         read_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
         write_cell_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
+        write_block_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
         write_unit_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
 
         sampler_id = gl.GLuint()
@@ -318,12 +338,16 @@ class World(PhysicalObject):
             gl.glMakeImageHandleResidentARB(write_cell_handle, gl.GL_WRITE_ONLY)
             write_cell_handles[index] = write_cell_handle
 
+            write_block_handle = gl.glGetImageHandleARB(texture_id, 1, gl.GL_TRUE, 0, gl.GL_RGBA32UI)
+            gl.glMakeImageHandleResidentARB(write_block_handle, gl.GL_WRITE_ONLY)
+            write_block_handles[index] = write_block_handle
+
             write_unit_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA32UI)
             gl.glMakeImageHandleResidentARB(write_unit_handle, gl.GL_WRITE_ONLY)
             write_unit_handles[index] = write_unit_handle
 
-        buffer_ids = (gl.GLuint * 3)()
-        gl.glCreateBuffers(3, buffer_ids)
+        buffer_ids = (gl.GLuint * 4)()
+        gl.glCreateBuffers(4, buffer_ids)
 
         read_buffer_id = buffer_ids[0]
         gl.glNamedBufferStorage(
@@ -341,7 +365,15 @@ class World(PhysicalObject):
             0
         )
 
-        write_unit_buffer_id = buffer_ids[2]
+        write_block_buffer_id = buffer_ids[2]
+        gl.glNamedBufferStorage(
+            write_block_buffer_id,
+            write_block_handles.nbytes,
+            write_block_handles.ctypes.data,
+            0
+        )
+
+        write_unit_buffer_id = buffer_ids[3]
         gl.glNamedBufferStorage(
             write_unit_buffer_id,
             write_unit_handles.nbytes,
@@ -349,7 +381,7 @@ class World(PhysicalObject):
             0
         )
 
-        return tuple(texture_ids), read_buffer_id, write_cell_buffer_id, write_unit_buffer_id
+        return tuple(texture_ids), read_buffer_id, write_cell_buffer_id, write_block_buffer_id, write_unit_buffer_id
 
     def prepare(self) -> None:
         self.generate_sphere()
@@ -368,16 +400,16 @@ class World(PhysicalObject):
             write_ids = self.texture_infos[0][0]
         chunk_index = 0
 
-        packed_world = np.empty((*self.unit_shape, 4), dtype = np.uint32)
-        # todo: Добавить проверку (assert), что веществ меньше чем 2**15
-        # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**15
-        packed_world[..., 0] = (self.substances.astype(np.uint32)
-                                | (self.quantities.astype(np.uint32) << 15))
+        packed_units = np.empty((*self.unit_shape, 4), dtype = np.uint32)
+        # todo: Добавить проверку (assert), что веществ меньше чем 2**16
+        # todo: Добавить проверку в шейдере, что количество никогда не превосходит 2**16
+        packed_units[..., 0] = (self.substances.astype(np.uint32)
+                                | (self.quantities.astype(np.uint32) << 16))
         zero_offset = 2 ** (10 - 1)
-        packed_world[..., 1] = (np.uint32(zero_offset)
+        packed_units[..., 1] = (np.uint32(zero_offset)
                                 | (np.uint32(zero_offset) << 10)
                                 | (np.uint32(zero_offset) << 20))
-        packed_world = np.ascontiguousarray(packed_world.swapaxes(0, 2))
+        packed_units = np.ascontiguousarray(packed_units.swapaxes(0, 2))
 
         gl.glTextureSubImage3D(
             write_ids[chunk_index],
@@ -390,7 +422,7 @@ class World(PhysicalObject):
             self.unit_shape.z,
             gl.GL_RGBA_INTEGER,
             gl.GL_UNSIGNED_INT,
-            packed_world.ctypes.data
+            packed_units.ctypes.data
         )
 
         packed_world_info = np.empty((*self.shape, 4), dtype = np.uint32)
@@ -398,7 +430,6 @@ class World(PhysicalObject):
         flat_bits = cells.reshape(-1, 64)
         packed_info = np.packbits(flat_bits, axis = -1, bitorder = "little").view(np.uint32)
         packed_world_info[..., 0] = packed_info[:, 0].reshape(self.shape)
-        packed_world_info[..., 1] = packed_info[:, 1].reshape(self.shape)
         packed_world_info = np.ascontiguousarray(packed_world_info)
 
         gl.glTextureSubImage3D(
@@ -417,19 +448,22 @@ class World(PhysicalObject):
 
         self.textures_writen = True
 
-    def bind_textures(self) -> None:
+    def swap_textures(self) -> None:
         if self.texture_state:
             read_buffer_id = self.texture_infos[0][1]
             write_cell_buffer_id = self.texture_infos[1][2]
-            write_unit_buffer_id = self.texture_infos[1][3]
+            write_block_buffer_id = self.texture_infos[1][3]
+            write_unit_buffer_id = self.texture_infos[1][4]
         else:
             read_buffer_id = self.texture_infos[1][1]
             write_cell_buffer_id = self.texture_infos[0][2]
-            write_unit_buffer_id = self.texture_infos[0][3]
+            write_block_buffer_id = self.texture_infos[0][3]
+            write_unit_buffer_id = self.texture_infos[0][4]
 
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 0, read_buffer_id)
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 1, write_cell_buffer_id)
-        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 2, write_unit_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 2, write_block_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 3, write_unit_buffer_id)
 
         self.texture_state = not self.texture_state
 
@@ -467,7 +501,7 @@ class World(PhysicalObject):
         self.compute_physics()
 
         self.age += self.settings.WORLD_UPDATE_PERIOD
-        self.bind_textures()
+        self.swap_textures()
 
     # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.
     def generate_sphere(self, radius: float = None) -> None:
