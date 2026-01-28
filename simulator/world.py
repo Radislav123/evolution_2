@@ -8,10 +8,12 @@ import numpy as np
 import numpy.typing as npt
 from pyglet import gl
 from pyglet.graphics.shader import ComputeShaderProgram, Shader, ShaderProgram
+from pyglet.math import Vec3
 
 from core.service.colors import ProjectColors
 from core.service.functions import load_shader, write_uniforms
-from core.service.object import PhysicalObject, ProjectionObject
+from core.service.object import PhysicalObject, ProjectMixin, ProjectionObject
+from core.service.singleton import Singleton
 from simulator.substance import Substance
 
 
@@ -22,6 +24,57 @@ CellIterator = npt.NDArray[np.int32]
 
 OpenGLIds = tuple[ctypes.c_uint, ...]
 OpenGLHandles = npt.NDArray[np.uint64]
+
+
+class Replacements(Singleton, ProjectMixin):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.CELL_SHAPE = self.ivec3(self.settings.CELL_SHAPE)
+        self.BLOCK_SHAPE = self.ivec3(self.settings.BLOCK_SHAPE)
+
+    @staticmethod
+    def vector(vector_type: str, vector: Vec3) -> str:
+        return f"{vector_type}{tuple(vector)}"
+
+    @classmethod
+    def ivec3(cls, vector: Vec3) -> str:
+        return cls.vector("ivec3", vector)
+
+
+REPLACEMENTS = Replacements()
+
+
+class Includes(Singleton, ProjectMixin):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.PHYSICAL_CONSTANTS = (
+            f"{self.settings.PHYSICAL_SHADERS}/constants/physical.glsl",
+            {
+                "world_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_SHAPE),
+                "world_unit_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_UNIT_SHAPE),
+
+                "cell_shape_placeholder": REPLACEMENTS.ivec3(self.settings.CELL_SHAPE),
+                "block_shape_placeholder": REPLACEMENTS.ivec3(self.settings.BLOCK_SHAPE)
+            }
+        )
+        self.PACKING_CONSTANTS = (
+            f"{self.settings.PHYSICAL_SHADERS}/constants/packing.glsl",
+            {}
+        )
+
+        self.CELL_PACKING = (
+            f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl",
+            {}
+        )
+        self.UNIT_PACKING = (
+            f"{self.settings.PHYSICAL_SHADERS}/components/unit.glsl",
+            {}
+        )
+
+
+INCLUDES = Includes()
 
 
 class CameraBuffer(ctypes.Structure):
@@ -69,10 +122,8 @@ class WorldProjection(ProjectionObject):
                         "color_function_path": (
                             f"{self.settings.PROJECTIONAL_SHADERS}/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
                             {}
-                        )
-                    },
-                    {
-                        "cell_size_d": self.settings.CELL_SHAPE_D
+                        ),
+                        "physical_constants": INCLUDES.PHYSICAL_CONSTANTS
                     }
                 ),
                 "fragment"
@@ -87,7 +138,6 @@ class WorldProjection(ProjectionObject):
             "u_fov_scale": (self.window.projector.projection.fov_scale, True, True),
             "u_near": (self.window.projector.projection.near, True, True),
             "u_far": (self.window.projector.projection.far, True, True),
-            "u_world_shape": (self.world.shape, True, True),
 
             "u_background": (ProjectColors.to_opengl(self.settings.WINDOW_BACKGROUND_COLOR), True, True),
             "u_optical_density_scale": (self.settings.OPTICAL_DENSITY_SCALE, False, False),
@@ -216,6 +266,7 @@ class World(PhysicalObject):
         self.width, self.length, self.height = self.shape
         self.center = self.shape // 2
 
+        # todo: remove iterator?
         self.iterator: CellIterator = np.stack(
             np.indices(self.shape[::-1])[::-1],
             axis = -1,
@@ -225,37 +276,25 @@ class World(PhysicalObject):
         self.cell_count = self.width * self.length * self.height
         self.subcell_in_cell_count = self.cell_shape.x * self.cell_shape.y * self.cell_shape.z
         self.subcell_count = self.cell_count * self.subcell_in_cell_count
-        # todo: Генерировать мир тоже на gpu
-        self.substances = np.zeros(self.unit_shape, dtype = np.uint16)
-        self.quantities = np.zeros(self.unit_shape, dtype = np.uint16)
-        self.sphere_mask = np.zeros(self.unit_shape, dtype = np.uint16)
 
         shader_includes = {
-            "physical_constants": (
-                f"{self.settings.PHYSICAL_SHADERS}/constants/physical.glsl",
-                {}
-            ),
-            "packing_constants": (
-                f"{self.settings.PHYSICAL_SHADERS}/constants/packing.glsl",
-                {}
-            ),
-            "cell": (
-                f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl",
-                {}
-            ),
-            "unit": (
-                f"{self.settings.PHYSICAL_SHADERS}/components/unit.glsl",
-                {}
-            )
+            "physical_constants": INCLUDES.PHYSICAL_CONSTANTS,
+            "packing_constants": INCLUDES.PACKING_CONSTANTS,
+            "cell_packing": INCLUDES.CELL_PACKING,
+            "unit_packing": INCLUDES.UNIT_PACKING
         }
-        self.physics_shader = ComputeShaderProgram(
+        self.creation_shader = ComputeShaderProgram(
+            load_shader(
+                f"{self.settings.PHYSICAL_SHADERS}/creation.glsl",
+                shader_includes,
+                None
+            )
+        )
+        self.unit_shader = ComputeShaderProgram(
             load_shader(
                 f"{self.settings.PHYSICAL_SHADERS}/unit.glsl",
                 shader_includes,
-                {
-                    "cell_size_d": self.settings.CELL_SHAPE_D,
-                    "block_size_d": self.settings.BLOCK_SHAPE_D
-                }
+                None
             )
         )
         self.physics_buffer = PhysicsBuffer()
@@ -275,18 +314,14 @@ class World(PhysicalObject):
             # todo: вернуть True, True?
             "u_world_update_period": (self.settings.WORLD_UPDATE_PERIOD, False, False),
 
-            "u_world_shape": (self.unit_shape, True, True),
-            "u_world_unit_shape": (self.unit_shape, True, True),
             # todo: вернуть True, True?
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, False, False)
         }
-        write_uniforms(self.physics_shader, uniforms)
+        write_uniforms(self.unit_shader, uniforms)
 
         self.thread_executor = ThreadPoolExecutor(self.settings.CPU_COUNT)
         self.prepare()
         self.projection: WorldProjection | None = None
-
-        self.textures_writen = False
 
     def init_physics_buffer(self) -> None:
         gl.glCreateBuffers(1, ctypes.byref(self.physics_buffer.gl_id))
@@ -384,7 +419,12 @@ class World(PhysicalObject):
         return tuple(texture_ids), read_buffer_id, write_cell_buffer_id, write_block_buffer_id, write_unit_buffer_id
 
     def prepare(self) -> None:
-        self.generate_sphere()
+        self.creation_shader.use()
+
+        gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
+
+        self.swap_textures()
 
     def start(self) -> None:
         self.projection = WorldProjection(self)
@@ -392,8 +432,13 @@ class World(PhysicalObject):
     def stop(self) -> None:
         self.thread_executor.shutdown()
 
+    # Оставлен для будущей реализации сохранения и загрузки мира
     # performance: Писать данные через прокладку в виде Pixel Buffer Object (PBO)?
     def write_textures(self) -> None:
+        self.substances = np.zeros(self.unit_shape, dtype = np.uint16)
+        self.quantities = np.zeros(self.unit_shape, dtype = np.uint16)
+        self.sphere_mask = np.zeros(self.unit_shape, dtype = np.uint16)
+
         if self.texture_state:
             write_ids = self.texture_infos[1][0]
         else:
@@ -446,8 +491,6 @@ class World(PhysicalObject):
             packed_world_info.ctypes.data
         )
 
-        self.textures_writen = True
-
     def swap_textures(self) -> None:
         if self.texture_state:
             read_buffer_id = self.texture_infos[0][1]
@@ -472,7 +515,7 @@ class World(PhysicalObject):
         pass
 
     def compute_physics(self) -> None:
-        self.physics_shader.use()
+        self.unit_shader.use()
 
         gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
@@ -484,10 +527,6 @@ class World(PhysicalObject):
         for future in as_completed(futures):
             # это нужно для проброса исключения из потока
             future.result()
-
-        # todo: move to start or init?
-        if not self.textures_writen:
-            self.write_textures()
 
         self.physics_buffer.u_world_age = self.age
         gl.glNamedBufferSubData(
@@ -502,44 +541,3 @@ class World(PhysicalObject):
 
         self.age += self.settings.WORLD_UPDATE_PERIOD
         self.swap_textures()
-
-    # todo: Удалить этот метод. Он нужен только для тестов на ранних этапах разработки.
-    def generate_sphere(self, radius: float = None) -> None:
-        if radius is None:
-            radius = max(min(self.unit_shape) / 2, 1)
-        index_x, index_y, index_z = np.indices(self.unit_shape)
-        point_radius = np.maximum(
-            np.sqrt(
-                ((self.unit_shape.x - self.cell_shape.x) / 2 - index_x) ** 2
-                + ((self.unit_shape.y - self.cell_shape.y) / 2 - index_y) ** 2
-                + ((self.unit_shape.z - self.cell_shape.z) / 2 - index_z) ** 2
-            ),
-            1
-        )
-        self.sphere_mask = (point_radius <= radius) & (index_x % 4 == 0) & (index_y % 4 == 0) & (index_z % 4 == 0)
-
-        quantities = (1000 * (radius - point_radius) // radius).astype(np.uint16)
-        self.quantities[self.sphere_mask] = quantities[self.sphere_mask]
-
-        relative_radius = point_radius / radius
-        conditions = (
-            relative_radius < 0.2,
-            (relative_radius >= 0.2) & (relative_radius < 0.4),
-            (relative_radius >= 0.4) & (relative_radius < 0.6),
-            (relative_radius >= 0.6) & (relative_radius < 0.8),
-            relative_radius >= 0.8
-        )
-        substance_ids = np.select(
-            conditions,
-            Substance.indexes[1:6]
-        )
-        self.substances[self.sphere_mask] = substance_ids[self.sphere_mask]
-
-        # self.substances[:] = 3
-        # self.quantities[:] = 50
-        # self.substances[:] = 0
-        # self.quantities[:] = 0
-        # self.substances[*(self.center * self.cell_shape)] = 1
-        # self.quantities[*(self.center * self.cell_shape)] = 1000
-        # self.substances[0, :, :] = 1
-        # self.quantities[0, :, :] = 10000

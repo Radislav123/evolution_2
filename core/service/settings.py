@@ -71,8 +71,6 @@ class Settings(Singleton):
         self.MAX_FPS = 60
         self.MAX_TPS = 1000
 
-        self.BUFFER_INDEXES = set()
-
         self.TEST_COLOR_CUBE = False
         self.TEST_COLOR_CUBE_START = (1.0, 1.0, 1.0, max(1 / max(self.WORLD_SHAPE), 0.03))
         self.TEST_COLOR_CUBE_END = (0.0, 0.0, 0.0, max(1 / max(self.WORLD_SHAPE), 0.03))

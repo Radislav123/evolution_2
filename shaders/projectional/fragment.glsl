@@ -3,12 +3,14 @@
 #extension GL_ARB_shading_language_include : require
 
 
+#include physical_constants
+
+
 // Переменные, которые почти не меняются или меняются редко
 uniform vec2 u_window_size;
 uniform float u_fov_scale;
 uniform float u_near;
 uniform float u_far;
-uniform ivec3 u_world_shape;
 
 uniform vec4 u_background;
 
@@ -25,10 +27,12 @@ layout(std140, binding = 3) uniform CameraBuffer {
     float u_zoom;
 };
 
+
 out vec4 f_color;
 
 
 #include color_function_path
+
 
 // performance: Способы ускоение: Метод "Спекулятивного кеширования", Variable Rate Shading (VRS), использование "Битовых масок пустоты", Репроекция (Temporal Reprojection)
 // performance: После разбиения на чанки, можно помечать чанки, в которых ничего не нужно рисовать?
@@ -36,8 +40,6 @@ out vec4 f_color;
 // todo: Добавить отражение
 // todo: Уйти от "стеклянных" ячеек. Не просто добавлять цвет лучу по прохождении границы ячейки, а добавлять цвет по количеству пройденного расстояния внутри вокселя
 void main() {
-    ivec3 world_min = ivec3(0);
-    ivec3 world_max = u_world_shape - 1;
 
     // Координаты пикселя на мониторе, со смещением цетнра координат в центр экрана
     vec2 pixel_position_normalized = (gl_FragCoord.xy - 0.5 * u_window_size) / (u_window_size.y * 0.5);
@@ -82,7 +84,7 @@ void main() {
         vec3 step_size = abs(ray_backward);
 
         vec3 next_boundary = (cell_position - ray_start + max(step_forward, 0.0)) * ray_backward;
-        uint max_iterations = u_world_shape.x + u_world_shape.y + u_world_shape.z;
+        uint max_iterations = world_shape.x + world_shape.y + world_shape.z;
         for (uint iteration = 0; iteration < max_iterations; iteration++) {
             // Проверка границ
             if (any(lessThan(cell_position, world_min))

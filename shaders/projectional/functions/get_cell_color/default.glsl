@@ -8,9 +8,6 @@ layout(std430, binding = 0) readonly restrict buffer World {
 } u_world;
 
 
-const ivec3 cell_shape = ivec3(cell_size_d, cell_size_d, cell_size_d);
-
-
 struct Cell {
     uint filled_units;
 };

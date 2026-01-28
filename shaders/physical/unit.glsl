@@ -1,9 +1,10 @@
 #version 460
 #extension GL_ARB_bindless_texture : require
 
-const ivec3 cell_shape = ivec3(cell_size_d, cell_size_d, cell_size_d);
-const ivec3 block_shape = ivec3(block_size_d, block_size_d, block_size_d);
-const int cell_size = cell_shape.x * cell_shape.y * cell_shape.z;
+
+#include physical_constants
+#include packing_constants
+
 
 layout(local_size_x = cell_shape.x, local_size_y = cell_shape.y, local_size_z = cell_shape.z) in;
 // performance: Хранить данные распакованными?
@@ -31,9 +32,6 @@ cell_offsets[6] * cell_shape
 
 // Переменные, которые почти не меняются или меняются редко
 uniform int u_world_update_period;
-
-uniform ivec3 u_world_shape;
-uniform ivec3 u_world_unit_shape;
 uniform vec3 u_gravity_vector;
 
 // Переменные, которые могу меняться каждый кадр
@@ -59,10 +57,8 @@ layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
 } u_world_unit_write;
 
 
-#include physical_constants
-#include packing_constants
-#include cell
-#include unit
+#include cell_packing
+#include unit_packing
 
 
 void main() {
@@ -79,11 +75,11 @@ void main() {
     // performance: Создавать потоков на каждый считываемый юнит (4х4х4х7), а вычисления проводить только на действительных (4х4х4)?
     // performance: Во втором слое завести счетчик, показывающий сколько юнитов заполнено
     for (uint cell_index = 0u; cell_index < 7u; cell_index++) {
-        ivec3 read_position = (global_unit_position + unit_offsets[cell_index] + u_world_unit_shape) % u_world_unit_shape;
+        ivec3 read_position = (global_unit_position + unit_offsets[cell_index] + world_unit_shape) % world_unit_shape;
         unit_cache[cell_index][local_index] = texelFetch(u_world_read.handles[chunk_index], read_position, 0);
     }
     if (local_index < 7) {
-        ivec3 read_position = (global_cell_position + unit_offsets[local_index] + u_world_shape) % u_world_shape;
+        ivec3 read_position = (global_cell_position + unit_offsets[local_index] + world_shape) % world_shape;
         cell_cache[local_index] = texelFetch(u_world_read.handles[chunk_index], read_position, 2);
     }
 
@@ -101,7 +97,7 @@ void main() {
 
     unit.momentum += u_gravity_vector * u_world_update_period;
     if (u_world_age % 100 == 0) {
-        //        global_unit_position = (global_unit_position + ivec3(sign(unit.momentum)) * cell_shape + u_world_unit_shape) % u_world_unit_shape;
+        //        global_unit_position = (global_unit_position + ivec3(sign(unit.momentum)) * cell_shape + world_unit_shape) % world_unit_shape;
     }
 
     imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

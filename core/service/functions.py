@@ -50,7 +50,7 @@ def load_shader(
     for placeholder, (include, include_replacements) in includes.items():
         with open(include, "r", encoding = settings.SHADER_ENCODING) as include_file:
             include_source = include_file.read()
-            for include_placeholder, value in include_replacements:
+            for include_placeholder, value in include_replacements.items():
                 include_source = include_source.replace(include_placeholder, value)
             code_source = code_source.replace(f"#include {placeholder}", include_source)
 
