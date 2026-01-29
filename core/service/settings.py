@@ -27,12 +27,11 @@ class Settings(Singleton):
         self.PHYSICAL_SHADERS = f"{self.SHADERS}/physical"
         self.PROJECTIONAL_SHADERS = f"{self.SHADERS}/projectional"
         self.CPU_COUNT = os.cpu_count()
-
         self.SHADER_ENCODING = "utf-8"
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(21, 21, 21)
+        self.WORLD_SHAPE = Vec3(24, 24, 24)
         # Это должно быть константой, так как на этом построена логика
         self.BLOCK_SHAPE_D = 2
         self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
@@ -41,6 +40,10 @@ class Settings(Singleton):
         self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])
         self.WORLD_UNIT_SHAPE = self.WORLD_SHAPE * self.CELL_SHAPE
         self.CHUNK_COUNT = 1
+
+        # Размер рабочей группы вычислительного шейдера
+        self.CELL_GROUP_SHAPE = Vec3(8, 8, 8)
+        self.WORLD_GROUP_SHAPE = self.WORLD_SHAPE // self.CELL_GROUP_SHAPE
 
         self.OPTICAL_DENSITY_SCALE = 0.001
 
@@ -90,3 +93,8 @@ class Settings(Singleton):
             raise SettingError(f"BLOCK_SHAPE_D ({self.BLOCK_SHAPE_D}) must be 2")
         if self.CELL_SHAPE_D != 4:
             raise SettingError(f"CELL_SHAPE_D ({self.CELL_SHAPE_D}) must be 4")
+
+        if self.WORLD_SHAPE % self.CELL_GROUP_SHAPE != Vec3(0, 0, 0):
+            raise SettingError(
+                f"self.WORLD_SHAPE % self.CELL_GROUP_SHAPE ({self.WORLD_SHAPE} % {self.CELL_GROUP_SHAPE} == {Vec3(0, 0, 0)}) division remainder must be zero vector"
+            )

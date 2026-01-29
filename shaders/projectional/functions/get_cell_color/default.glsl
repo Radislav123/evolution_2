@@ -19,6 +19,8 @@ struct Unit {
 };
 
 
+// todo: Вынести их к основным версиям?
+// Здесь специально упрощенные версии распаковки
 Cell unpack_cell(uvec4 packed_cell) {
     Cell cell;
 

@@ -42,7 +42,7 @@ void main() {
     Unit unit;
     if (global_unit_position % 4u == uvec3(0)) {
         unit.substance = layer;
-        unit.quantity = uint(1000.0 * (sphere_radius - radius) / radius);
+        unit.quantity = uint(300.0 * (sphere_radius - radius) / radius);
     }
 
     imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

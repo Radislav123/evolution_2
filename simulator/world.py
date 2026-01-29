@@ -33,6 +33,8 @@ class Replacements(Singleton, ProjectMixin):
         self.CELL_SHAPE = self.ivec3(self.settings.CELL_SHAPE)
         self.BLOCK_SHAPE = self.ivec3(self.settings.BLOCK_SHAPE)
 
+        self.CELL_GROUP_SHAPE = self.ivec3(self.settings.CELL_GROUP_SHAPE)
+
     @staticmethod
     def vector(vector_type: str, vector: Vec3) -> str:
         return f"{vector_type}{tuple(vector)}"
@@ -290,11 +292,13 @@ class World(PhysicalObject):
                 None
             )
         )
-        self.unit_shader = ComputeShaderProgram(
+        self.stage_0_shader = ComputeShaderProgram(
             load_shader(
-                f"{self.settings.PHYSICAL_SHADERS}/unit.glsl",
+                f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl",
                 shader_includes,
-                None
+                {
+                    "cell_group_shape_placeholder": REPLACEMENTS.CELL_GROUP_SHAPE
+                }
             )
         )
         self.physics_buffer = PhysicsBuffer()
@@ -317,7 +321,7 @@ class World(PhysicalObject):
             # todo: вернуть True, True?
             "u_gravity_vector": (self.settings.GRAVITY_VECTOR, False, False)
         }
-        write_uniforms(self.unit_shader, uniforms)
+        write_uniforms(self.stage_0_shader, uniforms)
 
         self.thread_executor = ThreadPoolExecutor(self.settings.CPU_COUNT)
         self.prepare()
@@ -515,9 +519,9 @@ class World(PhysicalObject):
         pass
 
     def compute_physics(self) -> None:
-        self.unit_shader.use()
+        self.stage_0_shader.use()
 
-        gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
+        gl.glDispatchCompute(*self.settings.WORLD_GROUP_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
 
     def on_update(self) -> None:
