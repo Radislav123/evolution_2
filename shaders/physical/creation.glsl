@@ -4,6 +4,7 @@
 
 #include physical_constants
 #include packing_constants
+#include common_constants
 
 
 layout(local_size_x = cell_shape.x, local_size_y = cell_shape.y, local_size_z = cell_shape.z) in;

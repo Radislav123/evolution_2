@@ -65,6 +65,12 @@ class Includes(Singleton, ProjectMixin):
             f"{self.settings.PHYSICAL_SHADERS}/constants/packing.glsl",
             {}
         )
+        self.COMMON_CONSTANTS = (
+            f"{self.settings.PHYSICAL_SHADERS}/constants/common.glsl",
+            {
+                "world_seed_placeholder": str(self.settings.WORLD_SEED)
+            }
+        )
 
         self.CELL_PACKING = (
             f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl",
@@ -282,6 +288,7 @@ class World(PhysicalObject):
         shader_includes = {
             "physical_constants": INCLUDES.PHYSICAL_CONSTANTS,
             "packing_constants": INCLUDES.PACKING_CONSTANTS,
+            "common_constants": INCLUDES.COMMON_CONSTANTS,
             "cell_packing": INCLUDES.CELL_PACKING,
             "unit_packing": INCLUDES.UNIT_PACKING
         }

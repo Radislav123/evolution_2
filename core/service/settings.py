@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from pyglet.math import Vec3
 
@@ -30,8 +31,8 @@ class Settings(Singleton):
         self.SHADER_ENCODING = "utf-8"
 
         self.WORLD_UPDATE_PERIOD = 1
-        self.WORLD_SEED = None
-        self.WORLD_SHAPE = Vec3(24, 24, 24)
+        self.WORLD_SEED = int(time.time())
+        self.WORLD_SHAPE = Vec3(32, 32, 32)
         # Это должно быть константой, так как на этом построена логика
         self.BLOCK_SHAPE_D = 2
         self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
@@ -81,6 +82,7 @@ class Settings(Singleton):
         self.check()
 
     # todo: Прописать проверки для всех настроек
+    # todo: Добавить проверки на параметры, передаваемые в шейдеры, что они помещаются в соответствующие типы
     # Тут именно исключения, а не ассерты, так как настройки могут меняться пользователем
     def check(self) -> None:
         if min(self.WORLD_SHAPE) <= 1:
