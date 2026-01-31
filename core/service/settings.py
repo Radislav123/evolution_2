@@ -46,9 +46,11 @@ class Settings(Singleton):
         self.CELL_GROUP_SHAPE = Vec3(8, 8, 8)
         self.WORLD_GROUP_SHAPE = self.WORLD_SHAPE // self.CELL_GROUP_SHAPE
 
-        self.OPTICAL_DENSITY_SCALE = 0.001
+        self.GRAVITY_VECTOR = Vec3(1, 0, 0)
 
-        self.GRAVITY_VECTOR = Vec3(0.01, 0, 0)
+        self.REQUEST_MIN_MOMENTUM = Vec3(1, 1, 1)
+
+        self.OPTICAL_DENSITY_SCALE = 0.001
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться

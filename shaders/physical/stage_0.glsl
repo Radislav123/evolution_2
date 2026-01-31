@@ -30,7 +30,7 @@ ivec3(0, 0, 1)
 
 // Переменные, которые почти не меняются или меняются редко
 uniform int u_world_update_period;
-uniform vec3 u_gravity_vector;
+uniform ivec3 u_gravity_vector;
 
 // Переменные, которые могу меняться каждый кадр
 // Порядок и дополнения до 16 байт должны совпадать с тем, что обхявлено в python-коде
@@ -88,9 +88,12 @@ void main() {
         Unit unit = unpack_unit(texelFetch(u_world_read.handles[chunk_index], global_unit_position, 0));
 
         unit.momentum += u_gravity_vector * u_world_update_period;
-        if (u_world_age % 100 == 0) {
-            //        global_unit_position = (global_unit_position + ivec3(sign(unit.momentum)) * cell_shape + world_unit_shape) % world_unit_shape;
+        // todo: Заменить 1 на массу молекулы (хранить ее в юните, чтобы не читать лишний раз?)
+        // todo: При (momentum.d == request_min_momentum * molecule_mass) перемещать раз в 100 тиков, при повышении импульса перемещать чаще?
+        if (any(greaterThanEqual(abs(unit.momentum), request_min_momentum * 1))) {
+            unit.substance = 1u;
         }
+
         imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));
     }
 

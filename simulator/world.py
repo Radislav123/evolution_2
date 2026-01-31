@@ -40,6 +40,10 @@ class Replacements(Singleton, ProjectMixin):
         return f"{vector_type}{tuple(vector)}"
 
     @classmethod
+    def vec3(cls, vector: Vec3) -> str:
+        return cls.vector("vec3", vector)
+
+    @classmethod
     def ivec3(cls, vector: Vec3) -> str:
         return cls.vector("ivec3", vector)
 
@@ -52,21 +56,23 @@ class Includes(Singleton, ProjectMixin):
         super().__init__()
 
         self.PHYSICAL_CONSTANTS = (
-            f"{self.settings.PHYSICAL_SHADERS}/constants/physical.glsl",
+            f"{self.settings.SHADERS}/constants/physical.glsl",
             {
                 "world_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_SHAPE),
                 "world_unit_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_UNIT_SHAPE),
 
                 "cell_shape_placeholder": REPLACEMENTS.ivec3(self.settings.CELL_SHAPE),
-                "block_shape_placeholder": REPLACEMENTS.ivec3(self.settings.BLOCK_SHAPE)
+                "block_shape_placeholder": REPLACEMENTS.ivec3(self.settings.BLOCK_SHAPE),
+
+                "request_min_momentum_placeholder": REPLACEMENTS.ivec3(self.settings.REQUEST_MIN_MOMENTUM)
             }
         )
         self.PACKING_CONSTANTS = (
-            f"{self.settings.PHYSICAL_SHADERS}/constants/packing.glsl",
+            f"{self.settings.SHADERS}/constants/packing.glsl",
             {}
         )
         self.COMMON_CONSTANTS = (
-            f"{self.settings.PHYSICAL_SHADERS}/constants/common.glsl",
+            f"{self.settings.SHADERS}/constants/common.glsl",
             {
                 "world_seed_placeholder": str(self.settings.WORLD_SEED)
             }

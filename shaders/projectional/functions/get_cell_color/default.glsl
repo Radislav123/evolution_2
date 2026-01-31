@@ -40,7 +40,7 @@ Unit unpack_unit(uvec4 packed_unit) {
 }
 
 
-vec4 get_cell_color(ivec3 cell_position) {
+vec4 get_cell_color(in ivec3 cell_position) {
     vec3 rgb_squared = vec3(0.0);
     float optical_depth = 0.0;
     vec3 rgb = vec3(0.0);

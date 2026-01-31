@@ -8,5 +8,4 @@ const int cell_size = cell_shape.x * cell_shape.y * cell_shape.z;
 const ivec3 world_min = ivec3(0);
 const ivec3 world_max = world_shape - 1;
 
-// Коэффициент поправки необходим для более точного хранения
-const float momentum_coeff = 100.0;
+const ivec3 request_min_momentum = request_min_momentum_placeholder;
