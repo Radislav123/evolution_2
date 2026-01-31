@@ -8,38 +8,6 @@ layout(std430, binding = 0) readonly restrict buffer World {
 } u_world;
 
 
-struct Cell {
-    uint filled_units;
-};
-
-
-struct Unit {
-    uint substance;
-    uint quantity;
-};
-
-
-// todo: Вынести их к основным версиям?
-// Здесь специально упрощенные версии распаковки
-Cell unpack_cell(uvec4 packed_cell) {
-    Cell cell;
-
-    cell.filled_units = bitfieldExtract(packed_cell.r, 0, 6);
-
-    return cell;
-}
-
-
-Unit unpack_unit(uvec4 packed_unit) {
-    Unit unit;
-
-    unit.substance = bitfieldExtract(packed_unit.r, 0, 16);
-    unit.quantity = bitfieldExtract(packed_unit.r, 16, 16);
-
-    return unit;
-}
-
-
 vec4 get_cell_color(in ivec3 cell_position) {
     vec3 rgb_squared = vec3(0.0);
     float optical_depth = 0.0;

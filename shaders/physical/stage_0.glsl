@@ -9,7 +9,6 @@
 #include unit_packing
 
 
-const ivec3 cell_group_shape = cell_group_shape_placeholder;
 const ivec3 cell_cache_shape = cell_group_shape + 2;
 const int cell_group_size = cell_group_shape.x * cell_group_shape.y * cell_group_shape.z;
 const int cell_cache_size = cell_cache_shape.x * cell_cache_shape.y * cell_cache_shape.z;
@@ -59,9 +58,9 @@ void main() {
     ivec3 global_group_posiiton = ivec3(gl_WorkGroupID);
     ivec3 global_cell_position = ivec3(gl_GlobalInvocationID);
     int local_cell_index = int(gl_LocalInvocationIndex);
-    uint chunk_index = 0;
+    int chunk_index = 0;
 
-    for (uint cell_index = local_cell_index; cell_index < cell_cache_size; cell_index += cell_group_size) {
+    for (int cell_index = local_cell_index; cell_index < cell_cache_size; cell_index += cell_group_size) {
         ivec3 cell_cache_position = ivec3(
         cell_index % cell_cache_shape.x,
         (cell_index % (cell_cache_shape.x * cell_cache_shape.y)) / cell_cache_shape.x,
@@ -75,7 +74,7 @@ void main() {
     memoryBarrierShared();
     barrier();
 
-    ivec3 cell_cache_position = ivec3(gl_LocalInvocationID);
+    ivec3 cell_cache_position = ivec3(gl_LocalInvocationID) + 1;
     Cell cell = cell_cache[cell_cache_position.x][cell_cache_position.y][cell_cache_position.z];
 
     for (int unit_index = 0; unit_index < cell.filled_units; unit_index++) {
@@ -87,11 +86,10 @@ void main() {
         ivec3 global_unit_position = global_cell_position * cell_shape + local_unit_position;
         Unit unit = unpack_unit(texelFetch(u_world_read.handles[chunk_index], global_unit_position, 0));
 
-        unit.momentum += u_gravity_vector * u_world_update_period;
+        unit.momentum += u_gravity_vector * unit.quantity * u_world_update_period;
         // todo: Заменить 1 на массу молекулы (хранить ее в юните, чтобы не читать лишний раз?)
-        // todo: При (momentum.d == request_min_momentum * molecule_mass) перемещать раз в 100 тиков, при повышении импульса перемещать чаще?
-        if (any(greaterThanEqual(abs(unit.momentum), request_min_momentum * 1))) {
-            unit.substance = 1u;
+        if (any(greaterThanEqual(abs(unit.momentum), ivec3(1)))) {
+            //            unit.substance = 1;
         }
 
         imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

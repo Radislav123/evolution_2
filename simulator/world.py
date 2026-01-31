@@ -8,12 +8,10 @@ import numpy as np
 import numpy.typing as npt
 from pyglet import gl
 from pyglet.graphics.shader import ComputeShaderProgram, Shader, ShaderProgram
-from pyglet.math import Vec3
 
 from core.service.colors import ProjectColors
-from core.service.functions import load_shader, write_uniforms
-from core.service.object import PhysicalObject, ProjectMixin, ProjectionObject
-from core.service.singleton import Singleton
+from core.service.glsl import load_shader, write_uniforms
+from core.service.object import PhysicalObject, ProjectionObject
 from simulator.substance import Substance
 
 
@@ -26,69 +24,8 @@ OpenGLIds = tuple[ctypes.c_uint, ...]
 OpenGLHandles = npt.NDArray[np.uint64]
 
 
-class Replacements(Singleton, ProjectMixin):
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.CELL_SHAPE = self.ivec3(self.settings.CELL_SHAPE)
-        self.BLOCK_SHAPE = self.ivec3(self.settings.BLOCK_SHAPE)
-
-        self.CELL_GROUP_SHAPE = self.ivec3(self.settings.CELL_GROUP_SHAPE)
-
-    @staticmethod
-    def vector(vector_type: str, vector: Vec3) -> str:
-        return f"{vector_type}{tuple(vector)}"
-
-    @classmethod
-    def vec3(cls, vector: Vec3) -> str:
-        return cls.vector("vec3", vector)
-
-    @classmethod
-    def ivec3(cls, vector: Vec3) -> str:
-        return cls.vector("ivec3", vector)
-
-
-REPLACEMENTS = Replacements()
-
-
-class Includes(Singleton, ProjectMixin):
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.PHYSICAL_CONSTANTS = (
-            f"{self.settings.SHADERS}/constants/physical.glsl",
-            {
-                "world_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_SHAPE),
-                "world_unit_shape_placeholder": REPLACEMENTS.ivec3(self.settings.WORLD_UNIT_SHAPE),
-
-                "cell_shape_placeholder": REPLACEMENTS.ivec3(self.settings.CELL_SHAPE),
-                "block_shape_placeholder": REPLACEMENTS.ivec3(self.settings.BLOCK_SHAPE),
-
-                "request_min_momentum_placeholder": REPLACEMENTS.ivec3(self.settings.REQUEST_MIN_MOMENTUM)
-            }
-        )
-        self.PACKING_CONSTANTS = (
-            f"{self.settings.SHADERS}/constants/packing.glsl",
-            {}
-        )
-        self.COMMON_CONSTANTS = (
-            f"{self.settings.SHADERS}/constants/common.glsl",
-            {
-                "world_seed_placeholder": str(self.settings.WORLD_SEED)
-            }
-        )
-
-        self.CELL_PACKING = (
-            f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl",
-            {}
-        )
-        self.UNIT_PACKING = (
-            f"{self.settings.PHYSICAL_SHADERS}/components/unit.glsl",
-            {}
-        )
-
-
-INCLUDES = Includes()
+class UniformSetError(Exception):
+    pass
 
 
 class CameraBuffer(ctypes.Structure):
@@ -125,23 +62,8 @@ class WorldProjection(ProjectionObject):
         self.ctx = self.window.ctx
 
         self.program = ShaderProgram(
-            Shader(
-                load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/vertex.glsl"),
-                "vertex"
-            ),
-            Shader(
-                load_shader(
-                    f"{self.settings.PROJECTIONAL_SHADERS}/fragment.glsl",
-                    {
-                        "color_function_path": (
-                            f"{self.settings.PROJECTIONAL_SHADERS}/functions/get_cell_color/{"default" if not self.settings.TEST_COLOR_CUBE else "test_color_cube"}.glsl",
-                            {}
-                        ),
-                        "physical_constants": INCLUDES.PHYSICAL_CONSTANTS
-                    }
-                ),
-                "fragment"
-            )
+            Shader(load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/vertex.glsl"), "vertex"),
+            Shader(load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/fragment.glsl", ), "fragment")
         )
 
         self.init_color_texture()
@@ -291,29 +213,8 @@ class World(PhysicalObject):
         self.subcell_in_cell_count = self.cell_shape.x * self.cell_shape.y * self.cell_shape.z
         self.subcell_count = self.cell_count * self.subcell_in_cell_count
 
-        shader_includes = {
-            "physical_constants": INCLUDES.PHYSICAL_CONSTANTS,
-            "packing_constants": INCLUDES.PACKING_CONSTANTS,
-            "common_constants": INCLUDES.COMMON_CONSTANTS,
-            "cell_packing": INCLUDES.CELL_PACKING,
-            "unit_packing": INCLUDES.UNIT_PACKING
-        }
-        self.creation_shader = ComputeShaderProgram(
-            load_shader(
-                f"{self.settings.PHYSICAL_SHADERS}/creation.glsl",
-                shader_includes,
-                None
-            )
-        )
-        self.stage_0_shader = ComputeShaderProgram(
-            load_shader(
-                f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl",
-                shader_includes,
-                {
-                    "cell_group_shape_placeholder": REPLACEMENTS.CELL_GROUP_SHAPE
-                }
-            )
-        )
+        self.creation_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/creation.glsl"))
+        self.stage_0_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl", ))
         self.physics_buffer = PhysicsBuffer()
         self.init_physics_buffer()
 
@@ -438,7 +339,7 @@ class World(PhysicalObject):
     def prepare(self) -> None:
         self.creation_shader.use()
 
-        gl.glDispatchCompute(*self.settings.WORLD_SHAPE)
+        gl.glDispatchCompute(*self.settings.WORLD_GROUP_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
 
         self.swap_textures()

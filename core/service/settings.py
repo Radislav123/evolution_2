@@ -48,8 +48,6 @@ class Settings(Singleton):
 
         self.GRAVITY_VECTOR = Vec3(1, 0, 0)
 
-        self.REQUEST_MIN_MOMENTUM = Vec3(1, 1, 1)
-
         self.OPTICAL_DENSITY_SCALE = 0.001
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1

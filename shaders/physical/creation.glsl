@@ -7,7 +7,7 @@
 #include common_constants
 
 
-layout(local_size_x = cell_shape.x, local_size_y = cell_shape.y, local_size_z = cell_shape.z) in;
+layout(local_size_x = cell_group_shape.x, local_size_y = cell_group_shape.y, local_size_z = cell_group_shape.z) in;
 
 
 layout(std430, binding = 1) writeonly restrict buffer WorldCellWrite {
@@ -26,27 +26,24 @@ layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
 
 
 void main() {
-    // Позиция ячейки в текстуре 2-го уровня
-    ivec3 global_cell_position = ivec3(gl_WorkGroupID);
-    // Позиция юнита в текстуре
-    ivec3 global_unit_position = ivec3(gl_GlobalInvocationID);
-    uint chunk_index = 0;
+    ivec3 global_cell_position = ivec3(gl_GlobalInvocationID);
+    int chunk_index = 0;
 
-    float sphere_radius = float(min(world_unit_shape.x, min(world_unit_shape.y, world_unit_shape.z))) / 2.0;
-    float radius = distance(vec3(global_unit_position), vec3(world_unit_shape - cell_shape * (world_shape % 2)) / 2.0);
+    float sphere_radius = float(min(world_shape.x, min(world_shape.y, world_shape.z))) / 2.0;
+    float radius = distance(vec3(global_cell_position), vec3(world_shape) / 2.0);
     float normalized_radius = radius / sphere_radius;
-    uint layer = clamp(uint(5.0 * normalized_radius), 0u, 4u) + 1u;
+    int layer = clamp(int(5.0 * normalized_radius), 0, 4) + 1;
 
-    Cell cell;
-    cell.filled_units = 1u;
-
-    Unit unit;
-    if (global_unit_position % 4u == uvec3(0)) {
-        unit.substance = layer;
-        unit.quantity = uint(300.0 * (sphere_radius - radius) / radius);
+    Cell cell = new_cell();
+    if (radius <= sphere_radius) {
+        cell.filled_units = 1;
     }
 
-    imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));
-    // todo: Перестроить шейдер на то, чтобы он создавал ячейки
+    Unit unit = new_unit();
+    ivec3 global_unit_position = global_cell_position * cell_shape;
+    unit.quantity = int(300.0 * (sphere_radius - radius) / radius);
+    unit.substance = unit.quantity > 0 ? layer : 0;
+
     imageStore(u_world_cell_write.handles[chunk_index], global_cell_position, pack_cell(cell));
+    imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));
 }

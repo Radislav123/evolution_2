@@ -4,6 +4,10 @@
 
 
 #include physical_constants
+#include packing_constants
+
+#include cell_packing
+#include unit_packing
 
 
 // Переменные, которые почти не меняются или меняются редко
@@ -31,7 +35,7 @@ layout(std140, binding = 3) uniform CameraBuffer {
 out vec4 f_color;
 
 
-#include color_function_path
+#include color_function
 
 
 // performance: Способы ускоение: Метод "Спекулятивного кеширования", Variable Rate Shading (VRS), использование "Битовых масок пустоты", Репроекция (Temporal Reprojection)
@@ -84,8 +88,8 @@ void main() {
         vec3 step_size = abs(ray_backward);
 
         vec3 next_boundary = (cell_position - ray_start + max(step_forward, 0.0)) * ray_backward;
-        uint max_iterations = world_shape.x + world_shape.y + world_shape.z;
-        for (uint iteration = 0; iteration < max_iterations; iteration++) {
+        int max_iterations = world_shape.x + world_shape.y + world_shape.z;
+        for (int iteration = 0; iteration < max_iterations; iteration++) {
             // Проверка границ
             if (any(lessThan(cell_position, world_min))
             || any(greaterThan(cell_position, world_max))) break;
