@@ -1,15 +1,25 @@
+from typing import Self
+
 import numpy as np
+import numpy.typing as npt
 
 from core.service.functions import get_subclasses
+
+
+class SubstanceInitError(Exception):
+    pass
 
 
 # https://ru.wikipedia.org/wiki/%D0%9F%D0%B5%D1%80%D0%B8%D0%BE%D0%B4%D0%B8%D1%87%D0%B5%D1%81%D0%BA%D0%B0%D1%8F_%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D0%B0_%D1%85%D0%B8%D0%BC%D0%B8%D1%87%D0%B5%D1%81%D0%BA%D0%B8%D1%85_%D1%8D%D0%BB%D0%B5%D0%BC%D0%B5%D0%BD%D1%82%D0%BE%D0%B2
 # todo: Температуру реализовать как количество запасенного тепла?
 # todo: Добавить базовые элементы (Element), из которых будут создаваться вещества.
 class Substance:
+    count: int
+    real = False
     # Характеристики одной единицы вещества - одной молекулы
     # Физические характеристики
     mass: float
+    mass_bits = 10
 
     # Характеристики для отображения
     # Цвет без альфа-канала, так как он заменен на absorption
@@ -22,13 +32,28 @@ class Substance:
     # https://ru.wikipedia.org/wiki/%D0%A1%D0%BF%D0%B5%D0%BA%D1%82%D1%80_%D0%BF%D0%BE%D0%B3%D0%BB%D0%BE%D1%89%D0%B5%D0%BD%D0%B8%D1%8F
     absorption: float
 
+    def __init__(self) -> None:
+        raise SubstanceInitError(f"{self.__class__} instancies are not allowed")
+
+    @classmethod
+    def check(cls) -> None:
+        assert (0 < cls.mass or cls is Vacuum) and cls.mass < 1 << cls.mass_bits, \
+            f"Mass ({cls.mass}) must be 0 < mass < {1 << cls.mass_bits}"
+
     @classmethod
     def calculate_arrays(cls) -> None:
-        cls.real_substances = tuple(
-            substance for substance in get_subclasses(cls) if hasattr(substance, "mass")
-        )
-        cls.indexes = np.arange(len(cls.real_substances), dtype = np.uint8)
+        cls.real_substances: tuple[Self, ...] = tuple(substance for substance in get_subclasses(cls) if substance.real)
+        for substance in cls.real_substances:
+            substance.check()
 
+        cls.real_count = len(cls.real_substances)
+        cls.indexes = np.arange(cls.real_count, dtype = np.uint8)
+
+        # (..., 4) - выравнивание до 16 байт, так как np.uint32 - это 4 байта
+        cls.physics_data: npt.NDArray[np.uint32] = np.zeros((cls.real_count, 4), dtype = np.uint32)
+        cls.physics_data[:, 0] = [substance.mass for substance in cls.real_substances]
+
+        # todo: Перевести на один буфер как физические
         cls.colors = np.array(
             [substance.color for substance in cls.real_substances],
             dtype = np.uint8
@@ -42,14 +67,18 @@ class Substance:
 # Не должен использоваться в расчетах, должен лишь служить как маркер отсутствия вещества, коим и является
 # Должен быть единственным не генерируемым, а заданным веществом
 class Vacuum(Substance):
+    real = True
     mass = 0
     absorption = 0
     color = (0, 0, 0, 0)
 
 
-# todo: Remove it and all subclasses
+# todo: Remove TestSubstance and all subclasses
 class TestSubstance(Substance):
     test = True
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        cls.real = True
 
 
 class Primum(TestSubstance):

@@ -1,10 +1,8 @@
-from typing import Any, TypeVar
+import ctypes
+from typing import Any
 
 from core.service.logger import Logger
 from core.service.settings import Settings
-
-
-PointType = TypeVar("PointType")
 
 
 class ProjectMixin:
@@ -27,3 +25,7 @@ class ProjectionObject(Object):
 class PhysicalObject(Object):
     def on_update(self, *args, **kwargs) -> Any:
         raise NotImplementedError()
+
+
+class GLBuffer(ctypes.Structure, ProjectMixin):
+    gl_id: ctypes.c_uint

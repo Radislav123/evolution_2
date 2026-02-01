@@ -1,7 +1,8 @@
 uniform float u_optical_density_scale;
 
-uniform sampler1D u_colors;
-uniform sampler1D u_absorption;
+
+layout(binding = 20) uniform sampler1D u_colors;
+layout(binding = 21) uniform sampler1D u_absorption;
 
 layout(std430, binding = 0) readonly restrict buffer World {
     usampler3D handles[];
@@ -21,8 +22,8 @@ vec4 get_cell_color(in ivec3 cell_position) {
         ivec3 local_position = ivec3(unit_index & 3, (unit_index >> 2) & 3, unit_index >> 4);
         Unit unit = unpack_unit(texelFetch(u_world.handles[chunk_index], cell_position * cell_shape + local_position, 0));
 
-        vec3 substance_rgb_val = texelFetch(u_colors, int(unit.substance), 0).rgb;
-        float absorption_rate = texelFetch(u_absorption, int(unit.substance), 0).r;
+        vec3 substance_rgb_val = texelFetch(u_colors, int(unit.substance_id), 0).rgb;
+        float absorption_rate = texelFetch(u_absorption, int(unit.substance_id), 0).r;
 
         float substance_optical_depth = absorption_rate * float(unit.quantity);
         rgb_squared += substance_rgb_val * substance_rgb_val * substance_optical_depth;

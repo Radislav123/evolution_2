@@ -6,6 +6,10 @@
 #include packing_constants
 #include common_constants
 
+#include cell_packing
+#include unit_packing
+#include substance_packing
+
 
 layout(local_size_x = cell_group_shape.x, local_size_y = cell_group_shape.y, local_size_z = cell_group_shape.z) in;
 
@@ -20,29 +24,30 @@ layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
     uimage3D handles[];
 } u_world_unit_write;
 
-
-#include cell_packing
-#include unit_packing
+layout(std430, binding = 10) readonly restrict buffer SubstanceBuffer {
+    Substance data[];
+} u_substance_buffer;
 
 
 void main() {
     ivec3 global_cell_position = ivec3(gl_GlobalInvocationID);
+    int substance_count = u_substance_buffer.data.length();
     int chunk_index = 0;
 
     float sphere_radius = float(min(world_shape.x, min(world_shape.y, world_shape.z))) / 2.0;
     float radius = distance(vec3(global_cell_position), vec3(world_shape) / 2.0);
     float normalized_radius = radius / sphere_radius;
-    int layer = clamp(int(5.0 * normalized_radius), 0, 4) + 1;
+    int layer = clamp(int(float(substance_count - 1) * normalized_radius), 0, substance_count - 1) + 1;
 
     Cell cell = new_cell();
-    if (radius <= sphere_radius) {
-        cell.filled_units = 1;
-    }
-
     Unit unit = new_unit();
+    Substance substance = u_substance_buffer.data[unit.substance_id];
+
     ivec3 global_unit_position = global_cell_position * cell_shape;
     unit.quantity = int(300.0 * (sphere_radius - radius) / radius);
-    unit.substance = unit.quantity > 0 ? layer : 0;
+    unit.substance_id = unit.quantity > 0 ? layer : 0;
+    cell.filled_units = unit.quantity > 0 ? 1 : 0;
+
 
     imageStore(u_world_cell_write.handles[chunk_index], global_cell_position, pack_cell(cell));
     imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

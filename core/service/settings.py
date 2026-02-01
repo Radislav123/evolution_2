@@ -1,6 +1,6 @@
+import datetime
 import logging
 import os
-import time
 
 from pyglet.math import Vec3
 
@@ -31,7 +31,7 @@ class Settings(Singleton):
         self.SHADER_ENCODING = "utf-8"
 
         self.WORLD_UPDATE_PERIOD = 1
-        self.WORLD_SEED = int(time.time())
+        self.WORLD_SEED = int(datetime.datetime.now().timestamp())
         self.WORLD_SHAPE = Vec3(32, 32, 32)
         # Это должно быть константой, так как на этом построена логика
         self.BLOCK_SHAPE_D = 2

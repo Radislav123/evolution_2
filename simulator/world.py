@@ -1,5 +1,4 @@
 import ctypes
-import datetime
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
@@ -11,14 +10,12 @@ from pyglet.graphics.shader import ComputeShaderProgram, Shader, ShaderProgram
 
 from core.service.colors import ProjectColors
 from core.service.glsl import load_shader, write_uniforms
-from core.service.object import PhysicalObject, ProjectionObject
+from core.service.object import GLBuffer, PhysicalObject, ProjectionObject
 from simulator.substance import Substance
 
 
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
-
-CellIterator = npt.NDArray[np.int32]
 
 OpenGLIds = tuple[ctypes.c_uint, ...]
 OpenGLHandles = npt.NDArray[np.uint64]
@@ -28,27 +25,24 @@ class UniformSetError(Exception):
     pass
 
 
-class CameraBuffer(ctypes.Structure):
+class CameraBuffer(GLBuffer):
     gl_id = gl.GLuint()
     _fields_ = [
         ("u_view_position", gl.GLfloat * 3),
-        ("u_padding_1", gl.GLint),
+        ("u_padding_0", gl.GLint),
         ("u_view_forward", gl.GLfloat * 3),
-        ("u_padding_2", gl.GLint),
+        ("u_padding_1", gl.GLint),
         ("u_view_right", gl.GLfloat * 3),
-        ("u_padding_3", gl.GLint),
+        ("u_padding_2", gl.GLint),
         ("u_view_up", gl.GLfloat * 3),
         ("u_zoom", gl.GLfloat),
-        # Всегда дополнять до кратности 16 байт
-        # ("u_padding_0", gl.GLint * 0)
     ]
 
 
-class PhysicsBuffer(ctypes.Structure):
+class PhysicsBuffer(GLBuffer):
     gl_id = gl.GLuint()
     _fields_ = [
         ("u_world_age", gl.GLuint),
-        # Всегда дополнять до кратности 16 байт
         ("u_padding_0", gl.GLint * 3)
     ]
 
@@ -95,16 +89,14 @@ class WorldProjection(ProjectionObject):
 
     def init_color_texture(self) -> None:
         texture_id = gl.GLuint()
-        gl.glGenTextures(1, texture_id)
-        gl.glActiveTexture(gl.GL_TEXTURE0)
-        gl.glBindTexture(gl.GL_TEXTURE_1D, texture_id)
+        gl.glCreateTextures(gl.GL_TEXTURE_1D, 1, texture_id)
 
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
 
-        gl.glTexStorage1D(
-            gl.GL_TEXTURE_1D,
+        gl.glTextureStorage1D(
+            texture_id,
             1,
             gl.GL_RGBA8,
             Substance.colors.size
@@ -119,20 +111,18 @@ class WorldProjection(ProjectionObject):
             Substance.colors.ctypes.data
         )
 
-        write_uniforms(self.program, {"u_colors": (0, False, False)})
+        gl.glBindTextureUnit(20, texture_id)
 
     def init_absorption_texture(self) -> None:
         texture_id = gl.GLuint()
-        gl.glGenTextures(1, texture_id)
-        gl.glActiveTexture(gl.GL_TEXTURE1)
-        gl.glBindTexture(gl.GL_TEXTURE_1D, texture_id)
+        gl.glCreateTextures(gl.GL_TEXTURE_1D, 1, texture_id)
 
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
 
-        gl.glTexStorage1D(
-            gl.GL_TEXTURE_1D,
+        gl.glTextureStorage1D(
+            texture_id,
             1,
             gl.GL_R32F,
             Substance.absorptions.size
@@ -147,7 +137,7 @@ class WorldProjection(ProjectionObject):
             Substance.absorptions.ctypes.data
         )
 
-        write_uniforms(self.program, {"u_absorption": (1, False, False)})
+        gl.glBindTextureUnit(21, texture_id)
 
     def init_camera_buffer(self) -> None:
         gl.glCreateBuffers(1, ctypes.byref(self.camera_buffer.gl_id))
@@ -188,8 +178,6 @@ class World(PhysicalObject):
     def __init__(self, window: "ProjectWindow") -> None:
         super().__init__()
         self.seed = self.settings.WORLD_SEED
-        if self.seed is None:
-            self.seed = datetime.datetime.now().timestamp()
         random.seed(self.seed)
         self.age = 0
 
@@ -201,20 +189,10 @@ class World(PhysicalObject):
         self.unit_shape = self.settings.WORLD_UNIT_SHAPE
         self.width, self.length, self.height = self.shape
         self.center = self.shape // 2
-
-        # todo: remove iterator?
-        self.iterator: CellIterator = np.stack(
-            np.indices(self.shape[::-1])[::-1],
-            axis = -1,
-            dtype = np.int32
-        ).reshape(-1, 3)
-
         self.cell_count = self.width * self.length * self.height
-        self.subcell_in_cell_count = self.cell_shape.x * self.cell_shape.y * self.cell_shape.z
-        self.subcell_count = self.cell_count * self.subcell_in_cell_count
 
         self.creation_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/creation.glsl"))
-        self.stage_0_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl", ))
+        self.stage_0_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl"))
         self.physics_buffer = PhysicsBuffer()
         self.init_physics_buffer()
 
@@ -227,6 +205,7 @@ class World(PhysicalObject):
         # False - первая для чтения, нулевая для записи
         self.texture_state = True
         self.swap_textures()
+        self.init_substance_texture()
 
         uniforms = {
             # todo: вернуть True, True?
@@ -252,7 +231,17 @@ class World(PhysicalObject):
 
         gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 2, self.physics_buffer.gl_id)
 
-    # performance: Писать  данные через прокладку в виде Pixel Buffer Object (PBO)?
+    def init_substance_texture(self) -> None:
+        buffer_id = gl.GLuint()
+        gl.glCreateBuffers(1, buffer_id)
+        gl.glNamedBufferStorage(
+            buffer_id,
+            Substance.physics_data.nbytes,
+            Substance.physics_data.ctypes.data,
+            0
+        )
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 10, buffer_id)
+
     def init_textures(self) -> tuple[OpenGLIds, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint]:
         read_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
         write_cell_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
@@ -260,7 +249,7 @@ class World(PhysicalObject):
         write_unit_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
 
         sampler_id = gl.GLuint()
-        gl.glGenSamplers(1, sampler_id)
+        gl.glCreateSamplers(1, sampler_id)
 
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
@@ -269,14 +258,13 @@ class World(PhysicalObject):
         gl.glSamplerParameteri(sampler_id, gl.GL_TEXTURE_WRAP_R, gl.GL_CLAMP_TO_EDGE)
 
         texture_ids = (gl.GLuint * self.settings.CHUNK_COUNT)()
-        gl.glGenTextures(self.settings.CHUNK_COUNT, texture_ids)
+        gl.glCreateTextures(gl.GL_TEXTURE_3D, self.settings.CHUNK_COUNT, texture_ids)
 
         for index in range(self.settings.CHUNK_COUNT):
             texture_id = texture_ids[index]
-            gl.glBindTexture(gl.GL_TEXTURE_3D, texture_id)
 
-            gl.glTexStorage3D(
-                gl.GL_TEXTURE_3D,
+            gl.glTextureStorage3D(
+                texture_id,
                 3,
                 gl.GL_RGBA32UI,
                 self.unit_shape.x,
@@ -299,42 +287,12 @@ class World(PhysicalObject):
             gl.glMakeImageHandleResidentARB(write_unit_handle, gl.GL_WRITE_ONLY)
             write_unit_handles[index] = write_unit_handle
 
+        all_handles = (read_handles, write_cell_handles, write_block_handles, write_unit_handles)
         buffer_ids = (gl.GLuint * 4)()
         gl.glCreateBuffers(4, buffer_ids)
-
-        read_buffer_id = buffer_ids[0]
-        gl.glNamedBufferStorage(
-            read_buffer_id,
-            read_handles.nbytes,
-            read_handles.ctypes.data,
-            0
-        )
-
-        write_cell_buffer_id = buffer_ids[1]
-        gl.glNamedBufferStorage(
-            write_cell_buffer_id,
-            write_cell_handles.nbytes,
-            write_cell_handles.ctypes.data,
-            0
-        )
-
-        write_block_buffer_id = buffer_ids[2]
-        gl.glNamedBufferStorage(
-            write_block_buffer_id,
-            write_block_handles.nbytes,
-            write_block_handles.ctypes.data,
-            0
-        )
-
-        write_unit_buffer_id = buffer_ids[3]
-        gl.glNamedBufferStorage(
-            write_unit_buffer_id,
-            write_unit_handles.nbytes,
-            write_unit_handles.ctypes.data,
-            0
-        )
-
-        return tuple(texture_ids), read_buffer_id, write_cell_buffer_id, write_block_buffer_id, write_unit_buffer_id
+        for buffer_id, handles in zip(buffer_ids, all_handles):
+            gl.glNamedBufferStorage(buffer_id, handles.nbytes, handles.ctypes.data, 0)
+        return tuple(texture_ids), buffer_ids[0], buffer_ids[1], buffer_ids[2], buffer_ids[3]
 
     def prepare(self) -> None:
         self.creation_shader.use()

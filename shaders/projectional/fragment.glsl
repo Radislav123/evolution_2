@@ -22,11 +22,11 @@ uniform vec4 u_background;
 // Порядок и дополнения до 16 байт должны совпадать с тем, что обхявлено в python-коде
 layout(std140, binding = 3) uniform CameraBuffer {
     vec3 u_view_position;
-    int u_padding_1;
+    int u_padding_0;
     vec3 u_view_forward;
-    int u_padding_2;
+    int u_padding_1;
     vec3 u_view_right;
-    int u_padding_3;
+    int u_padding_2;
     vec3 u_view_up;
     float u_zoom;
 };

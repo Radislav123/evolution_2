@@ -7,6 +7,7 @@
 
 #include cell_packing
 #include unit_packing
+#include substance_packing
 
 
 const ivec3 cell_cache_shape = cell_group_shape + 2;
@@ -53,6 +54,10 @@ layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
     uimage3D handles[];
 } u_world_unit_write;
 
+layout(std430, binding = 10) readonly restrict buffer SubstanceBuffer {
+    Substance data[];
+} u_substance_buffer;
+
 
 void main() {
     ivec3 global_group_posiiton = ivec3(gl_WorkGroupID);
@@ -85,11 +90,11 @@ void main() {
         );
         ivec3 global_unit_position = global_cell_position * cell_shape + local_unit_position;
         Unit unit = unpack_unit(texelFetch(u_world_read.handles[chunk_index], global_unit_position, 0));
+        Substance substance = u_substance_buffer.data[unit.substance_id];
 
-        unit.momentum += u_gravity_vector * unit.quantity * u_world_update_period;
-        // todo: Заменить 1 на массу молекулы (хранить ее в юните, чтобы не читать лишний раз?)
-        if (any(greaterThanEqual(abs(unit.momentum), ivec3(1)))) {
-            //            unit.substance = 1;
+        unit.momentum += global_cell_position.x > 0 ? u_gravity_vector * unit.quantity * u_world_update_period : ivec3(0.0);
+        if (any(greaterThanEqual(abs(unit.momentum), ivec3(substance.mass)))) {
+//            unit.substance_id = 1;
         }
 
         imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));
