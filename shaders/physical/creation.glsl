@@ -41,13 +41,13 @@ void main() {
 
     Cell cell = new_cell();
     Unit unit = new_unit();
-    Substance substance = u_substance_buffer.data[unit.substance_id];
 
     ivec3 global_unit_position = global_cell_position * cell_shape;
     unit.quantity = int(300.0 * (sphere_radius - radius) / radius);
     unit.substance_id = unit.quantity > 0 ? layer : 0;
     cell.filled_units = unit.quantity > 0 ? 1 : 0;
 
+    Substance substance = u_substance_buffer.data[unit.substance_id];
 
     imageStore(u_world_cell_write.handles[chunk_index], global_cell_position, pack_cell(cell));
     imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));

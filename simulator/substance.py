@@ -49,8 +49,7 @@ class Substance:
         cls.real_count = len(cls.real_substances)
         cls.indexes = np.arange(cls.real_count, dtype = np.uint8)
 
-        # (..., 4) - выравнивание до 16 байт, так как np.uint32 - это 4 байта
-        cls.physics_data: npt.NDArray[np.uint32] = np.zeros((cls.real_count, 4), dtype = np.uint32)
+        cls.physics_data: npt.NDArray[np.uint32] = np.zeros((cls.real_count, 1), dtype = np.uint32)
         cls.physics_data[:, 0] = [substance.mass for substance in cls.real_substances]
 
         # todo: Перевести на один буфер как физические
