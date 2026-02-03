@@ -32,7 +32,7 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = int(datetime.datetime.now().timestamp())
-        self.WORLD_SHAPE = Vec3(32, 32, 32)
+        self.WORLD_SHAPE = Vec3(64, 64, 64)
         # Это должно быть константой, так как на этом построена логика
         self.BLOCK_SHAPE_D = 2
         self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
@@ -48,7 +48,7 @@ class Settings(Singleton):
 
         self.GRAVITY_VECTOR = Vec3(1, 0, 0)
 
-        self.OPTICAL_DENSITY_SCALE = 0.001
+        self.OPTICAL_DENSITY_SCALE = 0.0003
 
         self.CAMERA_ZOOM_SENSITIVITY = 0.1
         # При значениях меньше 0.4 изображение начинает скакать и переворачиваться
