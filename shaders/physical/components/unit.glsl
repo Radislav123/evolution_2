@@ -45,13 +45,18 @@ Unit unpack_unit(uvec4 packed_unit) {
 uvec4 pack_unit(Unit unit) {
     uvec4 packed_unit = uvec4(0);
 
-    packed_unit.r = (uint(unit.substance_id) & mask_14) | ((uint(unit.quantity) & mask_10) << 14)
-    | ((uint(unit.plan.quantity) & mask_8) << 24);
+    packed_unit.r = uint(unit.substance_id);
+    packed_unit.r = bitfieldInsert(packed_unit.r, uint(unit.quantity), 14, 10);
+    packed_unit.r = bitfieldInsert(packed_unit.r, uint(unit.plan.quantity), 24, 8);
 
     uvec3 momentum = uvec3(unit.momentum + zero_offset_16);
-    packed_unit.g = (momentum.x & mask_10) | ((momentum.y & mask_10) << 10) | ((momentum.z & mask_10) << 20);
-    packed_unit.b = (momentum.x >> 10 & mask_6) | ((momentum.y >> 10 & mask_6) << 6) | ((momentum.z >> 10 & mask_6) << 12)
-    | ((uint(unit.plan.momentum_d + zero_offset_14) & mask_14) << 18);
+    packed_unit.g = momentum.x;
+    packed_unit.g = bitfieldInsert(packed_unit.g, momentum.y, 10, 10);
+    packed_unit.g = bitfieldInsert(packed_unit.g, momentum.z, 20, 10);
+    packed_unit.b = momentum.x >> 10;
+    packed_unit.b = bitfieldInsert(packed_unit.b, momentum.y >> 10, 6, 6);
+    packed_unit.b = bitfieldInsert(packed_unit.b, momentum.z >> 10, 12, 6);
+    packed_unit.b = bitfieldInsert(packed_unit.b, uint(unit.plan.momentum_d + zero_offset_14), 18, 14);
 
     return packed_unit;
 }

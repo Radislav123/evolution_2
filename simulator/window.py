@@ -19,7 +19,12 @@ class ProjectWindow(arcade.Window, ProjectMixin):
     fps_button: DynamicTextButton
 
     def __init__(self) -> None:
-        super().__init__(self.settings.WINDOW_WIDTH, self.settings.WINDOW_HEIGHT, center_window = True)
+        super().__init__(
+            self.settings.WINDOW_WIDTH,
+            self.settings.WINDOW_HEIGHT,
+            self.settings.WINDOWS_TITLE,
+            center_window = True
+        )
 
         self.frame = 0
         self.tps = 0

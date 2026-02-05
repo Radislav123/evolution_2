@@ -59,9 +59,7 @@ class WorldProjection(ProjectionObject):
             Shader(load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/vertex.glsl"), "vertex"),
             Shader(load_shader(f"{self.settings.PROJECTIONAL_SHADERS}/fragment.glsl", ), "fragment")
         )
-
-        self.init_color_texture()
-        self.init_absorption_texture()
+        self.init_substance_buffer()
 
         uniforms = {
             "u_window_size": (self.window.size, True, True),
@@ -77,8 +75,8 @@ class WorldProjection(ProjectionObject):
         }
         write_uniforms(self.program, uniforms)
 
-        self.camera_buffer = CameraBuffer()
-        self.init_camera_buffer()
+        self.uniform_buffer = CameraBuffer()
+        self.init_uniform_buffer()
 
         self.scene_vertices = self.program.vertex_list(
             4,
@@ -87,68 +85,27 @@ class WorldProjection(ProjectionObject):
         )
         self.need_update = True
 
-    def init_color_texture(self) -> None:
-        texture_id = gl.GLuint()
-        gl.glCreateTextures(gl.GL_TEXTURE_1D, 1, texture_id)
-
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
-
-        gl.glTextureStorage1D(
-            texture_id,
-            1,
-            gl.GL_RGBA8,
-            Substance.colors.size
-        )
-        gl.glTextureSubImage1D(
-            texture_id,
-            0,
-            0,
-            Substance.colors.size,
-            gl.GL_RGBA,
-            gl.GL_UNSIGNED_BYTE,
-            Substance.colors.ctypes.data
-        )
-
-        gl.glBindTextureUnit(20, texture_id)
-
-    def init_absorption_texture(self) -> None:
-        texture_id = gl.GLuint()
-        gl.glCreateTextures(gl.GL_TEXTURE_1D, 1, texture_id)
-
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-        gl.glTextureParameteri(texture_id, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
-
-        gl.glTextureStorage1D(
-            texture_id,
-            1,
-            gl.GL_R32F,
-            Substance.absorptions.size
-        )
-        gl.glTextureSubImage1D(
-            texture_id,
-            0,
-            0,
-            Substance.absorptions.size,
-            gl.GL_RED,
-            gl.GL_FLOAT,
-            Substance.absorptions.ctypes.data
-        )
-
-        gl.glBindTextureUnit(21, texture_id)
-
-    def init_camera_buffer(self) -> None:
-        gl.glCreateBuffers(1, ctypes.byref(self.camera_buffer.gl_id))
+    def init_substance_buffer(self) -> None:
+        buffer_id = gl.GLuint()
+        gl.glCreateBuffers(1, buffer_id)
         gl.glNamedBufferStorage(
-            self.camera_buffer.gl_id,
-            ctypes.sizeof(self.camera_buffer),
-            ctypes.byref(self.camera_buffer),
+            buffer_id,
+            Substance.optics_data.nbytes,
+            Substance.optics_data.ctypes.data,
+            0
+        )
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 20, buffer_id)
+
+    def init_uniform_buffer(self) -> None:
+        gl.glCreateBuffers(1, ctypes.byref(self.uniform_buffer.gl_id))
+        gl.glNamedBufferStorage(
+            self.uniform_buffer.gl_id,
+            ctypes.sizeof(self.uniform_buffer),
+            ctypes.byref(self.uniform_buffer),
             gl.GL_DYNAMIC_STORAGE_BIT
         )
 
-        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 3, self.camera_buffer.gl_id)
+        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 3, self.uniform_buffer.gl_id)
 
     def start(self) -> None:
         pass
@@ -158,16 +115,16 @@ class WorldProjection(ProjectionObject):
             self.program.use()
 
             if self.window.projector.changed:
-                self.camera_buffer.u_view_position = self.window.projector.view.position
-                self.camera_buffer.u_view_forward = self.window.projector.view.forward
-                self.camera_buffer.u_view_right = self.window.projector.view.right
-                self.camera_buffer.u_view_up = self.window.projector.view.up
-                self.camera_buffer.u_zoom = self.window.projector.view.zoom
+                self.uniform_buffer.u_view_position = self.window.projector.view.position
+                self.uniform_buffer.u_view_forward = self.window.projector.view.forward
+                self.uniform_buffer.u_view_right = self.window.projector.view.right
+                self.uniform_buffer.u_view_up = self.window.projector.view.up
+                self.uniform_buffer.u_zoom = self.window.projector.view.zoom
                 gl.glNamedBufferSubData(
-                    self.camera_buffer.gl_id,
+                    self.uniform_buffer.gl_id,
                     0,
-                    ctypes.sizeof(self.camera_buffer),
-                    ctypes.byref(self.camera_buffer)
+                    ctypes.sizeof(self.uniform_buffer),
+                    ctypes.byref(self.uniform_buffer)
                 )
                 self.window.projector.changed = False
 
@@ -193,8 +150,8 @@ class World(PhysicalObject):
 
         self.creation_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/creation.glsl"))
         self.stage_0_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl"))
-        self.physics_buffer = PhysicsBuffer()
-        self.init_physics_buffer()
+        self.uniform_buffer = PhysicsBuffer()
+        self.init_uniform_buffer()
 
         # (
         #   (texture_ids, handles_read_buffer_id, handles_write_cell_buffer_id, handles_write_block_buffer_id, handles_write_unit_buffer_id),
@@ -205,7 +162,7 @@ class World(PhysicalObject):
         # False - первая для чтения, нулевая для записи
         self.texture_state = True
         self.swap_textures()
-        self.init_substance_texture()
+        self.init_substance_buffer()
 
         uniforms = {
             # todo: вернуть True, True?
@@ -220,18 +177,18 @@ class World(PhysicalObject):
         self.prepare()
         self.projection: WorldProjection | None = None
 
-    def init_physics_buffer(self) -> None:
-        gl.glCreateBuffers(1, ctypes.byref(self.physics_buffer.gl_id))
+    def init_uniform_buffer(self) -> None:
+        gl.glCreateBuffers(1, ctypes.byref(self.uniform_buffer.gl_id))
         gl.glNamedBufferStorage(
-            self.physics_buffer.gl_id,
-            ctypes.sizeof(self.physics_buffer),
-            ctypes.byref(self.physics_buffer),
+            self.uniform_buffer.gl_id,
+            ctypes.sizeof(self.uniform_buffer),
+            ctypes.byref(self.uniform_buffer),
             gl.GL_DYNAMIC_STORAGE_BIT
         )
 
-        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 2, self.physics_buffer.gl_id)
+        gl.glBindBufferBase(gl.GL_UNIFORM_BUFFER, 2, self.uniform_buffer.gl_id)
 
-    def init_substance_texture(self) -> None:
+    def init_substance_buffer(self) -> None:
         buffer_id = gl.GLuint()
         gl.glCreateBuffers(1, buffer_id)
         gl.glNamedBufferStorage(
@@ -404,12 +361,12 @@ class World(PhysicalObject):
             # это нужно для проброса исключения из потока
             future.result()
 
-        self.physics_buffer.u_world_age = self.age
+        self.uniform_buffer.u_world_age = self.age
         gl.glNamedBufferSubData(
-            self.physics_buffer.gl_id,
+            self.uniform_buffer.gl_id,
             0,
-            ctypes.sizeof(self.physics_buffer),
-            ctypes.byref(self.physics_buffer)
+            ctypes.sizeof(self.uniform_buffer),
+            ctypes.byref(self.uniform_buffer)
         )
 
         self.compute_creatures()

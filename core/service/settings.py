@@ -15,6 +15,8 @@ class SettingError(ValueError):
 # todo: Добавить загрузку настроек из файла (вычисляемые настройки в файл не добавлять)
 class Settings(Singleton):
     def __init__(self) -> None:
+        self.WINDOWS_TITLE = "evolution_2"
+
         # Настройки логгера
         self.LOG_FORMAT = ("[%(asctime)s] - [%(levelname)s] - %(name)s"
                            " - (%(filename)s).%(funcName)s(%(lineno)d) - %(message)s")
@@ -32,7 +34,7 @@ class Settings(Singleton):
 
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = int(datetime.datetime.now().timestamp())
-        self.WORLD_SHAPE = Vec3(64, 64, 64)
+        self.WORLD_SHAPE = Vec3(128, 128, 64)
         # Это должно быть константой, так как на этом построена логика
         self.BLOCK_SHAPE_D = 2
         self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
@@ -62,6 +64,7 @@ class Settings(Singleton):
         # Не ставить 0, так как возникает ZeroDivisionError
         self.CAMERA_NEAR = 0.00001
         self.CAMERA_FOV = 20
+        self.CAMERA_DOLLY_SENSITIVITY = 5
 
         self.WINDOW_WIDTH = 800
         self.WINDOW_HEIGHT = 600

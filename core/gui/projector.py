@@ -65,7 +65,7 @@ class ProjectCameraData(CameraData, ProjectMixin):
 
     # Перемещает камеру вперед/назад относительно направления взгляда
     def dolly(self, offset_z: float) -> None:
-        self.position += self.forward * offset_z
+        self.position += self.forward * offset_z * self.settings.CAMERA_DOLLY_SENSITIVITY
 
         self.projector.changed = True
 

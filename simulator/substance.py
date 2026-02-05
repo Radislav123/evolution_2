@@ -37,8 +37,11 @@ class Substance:
 
     @classmethod
     def check(cls) -> None:
-        assert (0 < cls.mass or cls is Vacuum) and cls.mass < 1 << cls.mass_bits, \
-            f"Mass ({cls.mass}) must be 0 < mass < {1 << cls.mass_bits}"
+        if cls is not Vacuum:
+            assert 0 < cls.mass < 1 << cls.mass_bits, f"Mass ({cls.mass}) must be in (0; {1 << cls.mass_bits})"
+            assert 0 < cls.absorption, f"Absorption ({cls.absorption}) must be greater then 0"
+            assert all(0 <= component <= 255 for component in cls.color[:3]), \
+                f"Color components {cls.color[:3]} must be in [0; 255]"
 
     @classmethod
     def calculate_arrays(cls) -> None:
@@ -52,15 +55,15 @@ class Substance:
         cls.physics_data: npt.NDArray[np.uint32] = np.zeros((cls.real_count, 1), dtype = np.uint32)
         cls.physics_data[:, 0] = [substance.mass for substance in cls.real_substances]
 
-        # todo: Перевести на один буфер как физические
-        cls.colors = np.array(
-            [substance.color for substance in cls.real_substances],
-            dtype = np.uint8
+        cls.optics_data = np.zeros(
+            cls.real_count,
+            dtype = np.dtype([("color", np.uint32), ("absorption", np.float32)])
         )
-        cls.absorptions = np.array(
-            [substance.absorption for substance in cls.real_substances],
-            dtype = np.float32
-        )
+        cls.optics_data["color"] = [np.uint32(substance.color[0])
+                                    | (np.uint32(substance.color[1]) << 8)
+                                    | (np.uint32(substance.color[2]) << 16)
+                                    for substance in cls.real_substances]
+        cls.optics_data["absorption"] = [np.float32(substance.absorption) for substance in cls.real_substances]
 
 
 # Не должен использоваться в расчетах, должен лишь служить как маркер отсутствия вещества, коим и является
