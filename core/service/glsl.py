@@ -60,9 +60,10 @@ class Includes(Singleton, ProjectMixin):
         self.PACKING_CONSTANTS = f"{self.settings.SHADERS}/constants/packing.glsl"
         self.COMMON_CONSTANTS = f"{self.settings.SHADERS}/constants/common.glsl"
 
-        self.CELL_PACKING = f"{self.settings.PHYSICAL_SHADERS}/components/cell.glsl"
-        self.UNIT_PACKING = f"{self.settings.PHYSICAL_SHADERS}/components/unit.glsl"
-        self.SUBSTANCE_PACKING = f"{self.settings.PHYSICAL_SHADERS}/components/substance.glsl"
+        self.CELL_COMPONENT = f"{self.settings.SHADERS}/components/cell.glsl"
+        self.UNIT_COMPONENT = f"{self.settings.SHADERS}/components/unit.glsl"
+        self.SUBSTANCE_COMPONENT = f"{self.settings.SHADERS}/components/substance.glsl"
+        self.SUBSTANCE_OPTICS_COMPONENT = f"{self.settings.SHADERS}/components/substance_optics.glsl"
 
         for key, path in self.__dict__.items():
             with open(path, "r", encoding = settings.SHADER_ENCODING) as include_file:

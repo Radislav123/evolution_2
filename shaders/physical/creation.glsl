@@ -6,9 +6,9 @@
 #include packing_constants
 #include common_constants
 
-#include cell_packing
-#include unit_packing
-#include substance_packing
+#include cell_component
+#include unit_component
+#include substance_component
 
 
 layout(local_size_x = cell_group_shape.x, local_size_y = cell_group_shape.y, local_size_z = cell_group_shape.z) in;

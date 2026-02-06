@@ -1,27 +1,8 @@
 uniform float u_optical_density_scale;
 
 
-struct SubstanceOptics {
-    vec3 color;
-    float absorption;
-};
-
-
-SubstanceOptics unpack_substance_optics (uvec2 packed_optics) {
-    SubstanceOptics optics;
-
-    optics.color.r = float(bitfieldExtract(packed_optics.r, 0, 8)) / normal_8;
-    optics.color.g = float(bitfieldExtract(packed_optics.r, 8, 8)) / normal_8;
-    optics.color.b = float(bitfieldExtract(packed_optics.r, 16, 8)) / normal_8;
-
-    optics.absorption = uintBitsToFloat(packed_optics.g);
-
-    return optics;
-}
-
-
 layout(std430, binding = 20) readonly restrict buffer SubstanceOpticsBuffer {
-    uvec2 data[];
+    SubstanceOptics data[];
 } u_substance_optics;
 
 layout(std430, binding = 0) readonly restrict buffer World {
@@ -41,7 +22,7 @@ vec4 get_cell_color(in ivec3 cell_position) {
         // Позиция юнита в ячейке
         ivec3 local_position = ivec3(unit_index & 3, (unit_index >> 2) & 3, unit_index >> 4);
         Unit unit = unpack_unit(texelFetch(u_world.handles[chunk_index], cell_position * cell_shape + local_position, 0));
-        SubstanceOptics optics = unpack_substance_optics(u_substance_optics.data[unit.substance_id]);
+        SubstanceOptics optics = u_substance_optics.data[unit.substance_id];
 
         float substance_optical_depth = optics.absorption * float(unit.quantity);
         rgb_squared += optics.color * optics.color * substance_optical_depth;

@@ -1,13 +1,13 @@
 #version 460
 #extension GL_ARB_bindless_texture : require
-#extension GL_ARB_shading_language_include : require
 
 
 #include physical_constants
 #include packing_constants
 
-#include cell_packing
-#include unit_packing
+#include cell_component
+#include unit_component
+#include substance_optics_component
 
 
 // Переменные, которые почти не меняются или меняются редко

@@ -5,9 +5,9 @@
 #include physical_constants
 #include packing_constants
 
-#include cell_packing
-#include unit_packing
-#include substance_packing
+#include cell_component
+#include unit_component
+#include substance_component
 
 
 const ivec3 cell_cache_shape = cell_group_shape + 2;

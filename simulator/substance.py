@@ -23,9 +23,8 @@ class Substance:
 
     # Характеристики для отображения
     # Цвет без альфа-канала, так как он заменен на absorption
-    # Альфа канал заполнен 0 только для дополнения до 4 байтов
     # todo: Генерировать цвет на основе физических законов
-    color: tuple[int, int, int, int]
+    color: tuple[int, int, int]
     # Коэффициент поглощения света
     # todo: Реализовать спектральное поглощение, где для каждой компоненты будет свой коэффициент.
     #  Позволит "переключать зрение с человеческого" на то, что имеет определенное существо
@@ -41,7 +40,7 @@ class Substance:
             assert 0 < cls.mass < 1 << cls.mass_bits, f"Mass ({cls.mass}) must be in (0; {1 << cls.mass_bits})"
             assert 0 < cls.absorption, f"Absorption ({cls.absorption}) must be greater then 0"
             assert all(0 <= component <= 255 for component in cls.color[:3]), \
-                f"Color components {cls.color[:3]} must be in [0; 255]"
+                f"Color components {cls.color} must be in [0; 255]"
 
     @classmethod
     def calculate_arrays(cls) -> None:
@@ -55,15 +54,9 @@ class Substance:
         cls.physics_data: npt.NDArray[np.uint32] = np.zeros((cls.real_count, 1), dtype = np.uint32)
         cls.physics_data[:, 0] = [substance.mass for substance in cls.real_substances]
 
-        cls.optics_data = np.zeros(
-            cls.real_count,
-            dtype = np.dtype([("color", np.uint32), ("absorption", np.float32)])
-        )
-        cls.optics_data["color"] = [np.uint32(substance.color[0])
-                                    | (np.uint32(substance.color[1]) << 8)
-                                    | (np.uint32(substance.color[2]) << 16)
-                                    for substance in cls.real_substances]
-        cls.optics_data["absorption"] = [np.float32(substance.absorption) for substance in cls.real_substances]
+        cls.optics_data = np.zeros((cls.real_count, 4), dtype = np.float32)
+        cls.optics_data[:, :3] = np.array([s.color for s in cls.real_substances], dtype = np.float32) / 255
+        cls.optics_data[:, 3] = [np.float32(substance.absorption) for substance in cls.real_substances]
 
 
 # Не должен использоваться в расчетах, должен лишь служить как маркер отсутствия вещества, коим и является
@@ -72,7 +65,7 @@ class Vacuum(Substance):
     real = True
     mass = 0
     absorption = 0
-    color = (0, 0, 0, 0)
+    color = (0, 0, 0)
 
 
 # todo: Remove TestSubstance and all subclasses
@@ -86,31 +79,31 @@ class TestSubstance(Substance):
 class Primum(TestSubstance):
     mass = 1
     absorption = 0.5
-    color = (220, 100, 80, 0)
+    color = (220, 100, 80)
 
 
 class Secundum(TestSubstance):
     mass = 2
     absorption = 0.6
-    color = (255, 220, 50, 0)
+    color = (255, 220, 50)
 
 
 class Tertium(TestSubstance):
     mass = 3
     absorption = 0.7
-    color = (100, 200, 100, 0)
+    color = (100, 200, 100)
 
 
 class Quartum(TestSubstance):
     mass = 4
     absorption = 0.8
-    color = (200, 230, 255, 0)
+    color = (200, 230, 255)
 
 
 class Quintum(TestSubstance):
     mass = 5
     absorption = 0.9
-    color = (160, 80, 220, 0)
+    color = (160, 80, 220)
 
 
 Substance.calculate_arrays()
