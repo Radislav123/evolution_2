@@ -1,3 +1,11 @@
+layout(std430, binding = 0) readonly restrict buffer ReadUnit {
+    usampler3D handles[];
+} u_read_unit;
+layout(std430, binding = 5) writeonly restrict buffer WriteUnit {
+    uimage3D handles[];
+} u_write_unit;
+
+
 struct Plan {
     int quantity;// 8 - [0; 255]
     int momentum_d;// 14 - [-8192; 8191]
@@ -18,11 +26,24 @@ Unit new_unit() {
 }
 
 
+// performance: Заменить формулу для расчета local_position на lookup table?
+ivec3 unit_index_to_position(ivec3 cell_position, int local_index) {
+    ivec3 local_position = ivec3(
+    local_index % cell_shape.x,
+    (local_index / cell_shape.x) % cell_shape.y,
+    local_index / (cell_shape.x * cell_shape.y)
+    );
+    return cell_position * cell_shape + local_position;
+}
+
+
 // r - [0; 31]
 // g - [0; 29]
 // b - [0; 31]
 // a - []
-Unit unpack_unit(uvec4 packed_unit) {
+Unit read_unit_base(ivec3 position) {
+    int chunk_index = 0;
+    uvec4 packed_unit = texelFetch(u_read_unit.handles[chunk_index], position, 0);
     Unit unit;
 
     unit.substance_id = int(bitfieldExtract(packed_unit.r, 0, 14));
@@ -39,10 +60,18 @@ Unit unpack_unit(uvec4 packed_unit) {
     return unit;
 }
 
+Unit read_unit(ivec3 global_position) {
+    return read_unit_base(global_position);
+}
 
-// todo: Внедрить проверку на переполнение упаковываемых величин, которую можно будет убирать до компиляции, в случае необходимости
-//  макрос для проверки переполнения, который можно отключать #define
-uvec4 pack_unit(Unit unit) {
+Unit read_unit(ivec3 cell_position, int local_index) {
+    return read_unit_base(unit_index_to_position(cell_position, local_index));
+}
+
+
+// todo: Внедрить проверку на переполнение упаковываемых величин, которую можно будет убирать до компиляции, в случае необходимости (макрос для проверки переполнения, который можно отключать #define) 
+void write_unit_base(ivec3 position, Unit unit) {
+    int chunk_index = 0;
     uvec4 packed_unit = uvec4(0);
 
     packed_unit.r = uint(unit.substance_id);
@@ -58,5 +87,13 @@ uvec4 pack_unit(Unit unit) {
     packed_unit.b = bitfieldInsert(packed_unit.b, momentum.z >> 10, 12, 6);
     packed_unit.b = bitfieldInsert(packed_unit.b, uint(unit.plan.momentum_d + zero_offset_14), 18, 14);
 
-    return packed_unit;
+    imageStore(u_write_unit.handles[chunk_index], position, packed_unit);
+}
+
+void write_unit(ivec3 global_position, Unit unit) {
+    write_unit_base(global_position, unit);
+}
+
+void write_unit(ivec3 cell_position, int local_index, Unit unit) {
+    write_unit_base(unit_index_to_position(cell_position, local_index), unit);
 }
