@@ -3,6 +3,7 @@ from typing import Self
 
 class Singleton:
     instances: dict[str, Self] = {}
+    inited = False
 
     def __new__(cls, *args, class_id = None, **kwargs) -> "Self":
         if class_id is None:
