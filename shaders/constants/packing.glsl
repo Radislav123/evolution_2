@@ -4,6 +4,7 @@ const int zero_offset_14 = 1 << (14 - 1);
 const int zero_offset_16 = 1 << (16 - 1);
 const int zero_offset_21 = 1 << (21 - 1);
 
+const uint mask_3 = (1u << 3) - 1u;
 const uint mask_5 = (1u << 5) - 1u;
 const uint mask_6 = (1u << 6) - 1u;
 const uint mask_8 = (1u << 8) - 1u;

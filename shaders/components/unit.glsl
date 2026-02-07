@@ -18,11 +18,25 @@ Unit new_unit() {
 }
 
 
+layout(std430, binding = 0) readonly restrict buffer UnitReadBuffer {
+    uvec4 data[];
+} u_unit_buffer_read;
+layout(std430, binding = 2) writeonly restrict buffer UnitWriteBuffer {
+    uvec4 data[];
+} u_unit_buffer_write;
+
+
+int unit_position_to_index(ivec3 cell_position, int local_index) {
+    return cell_position_to_index(cell_position) * cell_size + local_index;
+}
+
+
 // r - [0; 31]
 // g - [0; 29]
 // b - [0; 31]
 // a - []
-Unit unpack_unit(uvec4 packed_unit) {
+Unit read_unit_base(int index) {
+    uvec4 packed_unit = u_unit_buffer_read.data[index];
     Unit unit;
 
     unit.substance_id = int(bitfieldExtract(packed_unit.r, 0, 14));
@@ -39,10 +53,17 @@ Unit unpack_unit(uvec4 packed_unit) {
     return unit;
 }
 
+Unit read_unit(int global_index) {
+    return read_unit_base(global_index);
+}
 
-// todo: Внедрить проверку на переполнение упаковываемых величин, которую можно будет убирать до компиляции, в случае необходимости
-//  макрос для проверки переполнения, который можно отключать #define
-uvec4 pack_unit(Unit unit) {
+Unit read_unit(ivec3 cell_position, int local_index) {
+    return read_unit_base(unit_position_to_index(cell_position, local_index));
+}
+
+
+// todo: Внедрить проверку на переполнение упаковываемых величин, которую можно будет убирать до компиляции, в случае необходимости (макрос для проверки переполнения, который можно отключать #define) 
+void write_unit_base(int index, Unit unit) {
     uvec4 packed_unit = uvec4(0);
 
     packed_unit.r = uint(unit.substance_id);
@@ -58,5 +79,13 @@ uvec4 pack_unit(Unit unit) {
     packed_unit.b = bitfieldInsert(packed_unit.b, momentum.z >> 10, 12, 6);
     packed_unit.b = bitfieldInsert(packed_unit.b, uint(unit.plan.momentum_d + zero_offset_14), 18, 14);
 
-    return packed_unit;
+    u_unit_buffer_write.data[index] = packed_unit;
+}
+
+void write_unit(int global_index, Unit unit) {
+    write_unit_base(global_index, unit);
+}
+
+void write_unit(ivec3 cell_position, int local_index, Unit unit) {
+    write_unit_base(unit_position_to_index(cell_position, local_index), unit);
 }

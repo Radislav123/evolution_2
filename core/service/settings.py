@@ -35,14 +35,10 @@ class Settings(Singleton):
         self.WORLD_UPDATE_PERIOD = 1
         self.WORLD_SEED = int(datetime.datetime.now().timestamp())
         self.WORLD_SHAPE = Vec3(128, 128, 64)
+        self.CELL_COUNT = self.WORLD_SHAPE[0] * self.WORLD_SHAPE[1] * self.WORLD_SHAPE[2]
+        # todo: Точно должно быть константой? Возможно, достаточно проверить на то, что в допустимых границах?
         # Это должно быть константой, так как на этом построена логика
-        self.BLOCK_SHAPE_D = 2
-        self.BLOCK_SHAPE = Vec3(*[self.BLOCK_SHAPE_D for _ in range(3)])
-        # Это должно быть константой, так как на этом построена логика
-        self.CELL_SHAPE_D = 4
-        self.CELL_SHAPE = Vec3(*[self.CELL_SHAPE_D for _ in range(3)])
-        self.WORLD_UNIT_SHAPE = self.WORLD_SHAPE * self.CELL_SHAPE
-        self.CHUNK_COUNT = 1
+        self.CELL_SIZE = 64
 
         # Размер рабочей группы вычислительного шейдера
         self.CELL_GROUP_SHAPE = Vec3(8, 8, 8)
@@ -93,11 +89,6 @@ class Settings(Singleton):
 
         if self.CPU_COUNT <= 0:
             raise SettingError(f"CPU_COUNT ({self.CPU_COUNT}) must be greater than 0")
-
-        if self.BLOCK_SHAPE_D != 2:
-            raise SettingError(f"BLOCK_SHAPE_D ({self.BLOCK_SHAPE_D}) must be 2")
-        if self.CELL_SHAPE_D != 4:
-            raise SettingError(f"CELL_SHAPE_D ({self.CELL_SHAPE_D}) must be 4")
 
         if self.WORLD_SHAPE % self.CELL_GROUP_SHAPE != Vec3(0, 0, 0):
             raise SettingError(

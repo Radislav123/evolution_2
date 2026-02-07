@@ -23,28 +23,31 @@ class Replacements(Singleton, ProjectMixin):
     def __init__(self) -> None:
         super().__init__()
 
-        self.WORLD_SEED = str(self.settings.WORLD_SEED)
+        self.WORLD_SEED = self.to_int(self.settings.WORLD_SEED)
 
-        self.WORLD_SHAPE = self.ivec3(self.settings.WORLD_SHAPE)
-        self.BLOCK_SHAPE = self.ivec3(self.settings.BLOCK_SHAPE)
-        self.CELL_SHAPE = self.ivec3(self.settings.CELL_SHAPE)
-        self.WORLD_UNIT_SHAPE = self.ivec3(self.settings.WORLD_UNIT_SHAPE)
+        self.WORLD_SHAPE = self.to_ivec3(self.settings.WORLD_SHAPE)
+        self.CELL_SIZE = self.to_int(self.settings.CELL_SIZE)
 
-        self.CELL_GROUP_SHAPE = self.ivec3(self.settings.CELL_GROUP_SHAPE)
+        self.WORLD_GROUP_SHAPE = self.to_ivec3(self.settings.WORLD_GROUP_SHAPE)
+        self.CELL_GROUP_SHAPE = self.to_ivec3(self.settings.CELL_GROUP_SHAPE)
 
         self.all = {f"{key.lower()}_placeholder": value for key, value in self.__dict__.items()}
 
     @staticmethod
-    def vector(vector_type: str, vector: Vec3) -> str:
+    def to_vector(vector_type: str, vector: Vec3) -> str:
         return f"{vector_type}{tuple(vector)}"
 
     @classmethod
-    def vec3(cls, vector: Vec3) -> str:
-        return cls.vector("vec3", vector)
+    def to_vec3(cls, vector: Vec3) -> str:
+        return cls.to_vector("vec3", vector)
 
     @classmethod
-    def ivec3(cls, vector: Vec3) -> str:
-        return cls.vector("ivec3", vector)
+    def to_ivec3(cls, vector: Vec3) -> str:
+        return cls.to_vector("ivec3", vector)
+
+    @classmethod
+    def to_int(cls, value: int) -> str:
+        return str(value)
 
 
 REPLACEMENTS = Replacements()

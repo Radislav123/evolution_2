@@ -41,64 +41,42 @@ layout(std140, binding = 2) uniform PhysicsBuffer {
 };
 
 
-layout(std430, binding = 0) readonly restrict buffer WorldRead {
-    usampler3D handles[];
-} u_world_read;
-layout(std430, binding = 1) writeonly restrict buffer WorldCellWrite {
-    uimage3D handles[];
-} u_world_cell_write;
-layout(std430, binding = 2) writeonly restrict buffer WorldBlockWrite {
-    uimage3D handles[];
-} u_world_block_write;
-layout(std430, binding = 3) writeonly restrict buffer WorldUnitWrite {
-    uimage3D handles[];
-} u_world_unit_write;
-
-layout(std430, binding = 10) readonly restrict buffer SubstanceBuffer {
-    Substance data[];
-} u_substance_buffer;
-
-
 void main() {
-    ivec3 global_group_posiiton = ivec3(gl_WorkGroupID);
+    ivec3 group_position = ivec3(gl_WorkGroupID);
     ivec3 global_cell_position = ivec3(gl_GlobalInvocationID);
-    int local_cell_index = int(gl_LocalInvocationIndex);
+    int gloup_cell_index = int(gl_LocalInvocationIndex);
     int chunk_index = 0;
 
-    for (int cell_index = local_cell_index; cell_index < cell_cache_size; cell_index += cell_group_size) {
-        ivec3 cell_cache_position = ivec3(
+    for (int cell_index = gloup_cell_index; cell_index < cell_cache_size; cell_index += cell_group_size) {
+        ivec3 cache_cell_position = ivec3(
         cell_index % cell_cache_shape.x,
         (cell_index % (cell_cache_shape.x * cell_cache_shape.y)) / cell_cache_shape.x,
         cell_index / (cell_cache_shape.x * cell_cache_shape.y)
         );
-        ivec3 read_position = (cell_cache_position + ivec3(global_group_posiiton * cell_group_shape) - 1 + world_shape) % world_shape;
+        ivec3 read_position = (cache_cell_position + ivec3(group_position * cell_group_shape) - 1 + world_shape) % world_shape;
 
-        cell_cache[cell_cache_position.x][cell_cache_position.y][cell_cache_position.z] = unpack_cell(texelFetch(u_world_read.handles[chunk_index], read_position, 2));
+        cell_cache[cache_cell_position.x][cache_cell_position.y][cache_cell_position.z] = read_cell(read_position);
     }
 
     memoryBarrierShared();
     barrier();
 
-    ivec3 cell_cache_position = ivec3(gl_LocalInvocationID) + 1;
-    Cell cell = cell_cache[cell_cache_position.x][cell_cache_position.y][cell_cache_position.z];
+    // Сдвиг на + 1 так как в кэш записывается еще слой поверх группы
+    ivec3 cache_cell_position = ivec3(gl_LocalInvocationID) + 1;
+    Cell cell = cell_cache[cache_cell_position.x][cache_cell_position.y][cache_cell_position.z];
 
-    for (int unit_index = 0; unit_index < cell.filled_units; unit_index++) {
-        ivec3 local_unit_position = ivec3(
-        unit_index % cell_shape.x,
-        (unit_index % (cell_shape.x * cell_shape.y)) / cell_shape.x,
-        unit_index / (cell_shape.x * cell_shape.y)
-        );
-        ivec3 global_unit_position = global_cell_position * cell_shape + local_unit_position;
-        Unit unit = unpack_unit(texelFetch(u_world_read.handles[chunk_index], global_unit_position, 0));
-        Substance substance = u_substance_buffer.data[unit.substance_id];
+    for (int local_unit_index = 0; local_unit_index < cell.filled_units; local_unit_index++) {
+        int global_unit_index = unit_position_to_index(global_cell_position, local_unit_index);
+        Unit unit = read_unit(global_unit_index);
+        Substance substance = read_substance(unit.substance_id);
 
         unit.momentum += global_cell_position.x > 0 ? u_gravity_vector * unit.quantity * u_world_update_period : ivec3(0.0);
         if (any(greaterThanEqual(abs(unit.momentum), ivec3(substance.mass)))) {
-//            unit.substance_id = 1;
+            //            unit.substance_id = 1;
         }
 
-        imageStore(u_world_unit_write.handles[chunk_index], global_unit_position, pack_unit(unit));
+        write_unit(global_unit_index, unit);
     }
 
-    imageStore(u_world_cell_write.handles[chunk_index], global_cell_position, pack_cell(cell));
+    write_cell(global_cell_position, cell);
 }
