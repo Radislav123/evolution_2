@@ -1,10 +1,11 @@
 import time
-from collections import deque
 
 import arcade
 import arcade.gui
+import numpy as np
 from arcade.future.input import Keys, MouseButtons
 from arcade.gui import UIAnchorLayout, UIBoxLayout, UIManager
+from numpy import typing as npt
 from pyglet import gl
 from pyglet.event import EVENT_HANDLE_STATE
 
@@ -12,6 +13,9 @@ from core.gui.button import Button, DynamicTextButton
 from core.gui.projector import ProjectProjector
 from core.service.object import ProjectMixin
 from simulator.world import World
+
+
+TimingArray = npt.NDArray[np.float32]
 
 
 class ProjectWindow(arcade.Window, ProjectMixin):
@@ -31,7 +35,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         self.fps = 0
         self.desired_tps = 0
         self.desired_fps = 0
-        self.timings: dict[str, deque[float]] = {}
+        self.timings: dict[str, list[TimingArray | int]] = {}
         self.set_tps(self.settings.MAX_TPS)
         self.set_fps(self.settings.MAX_FPS)
 
@@ -55,14 +59,14 @@ class ProjectWindow(arcade.Window, ProjectMixin):
     def set_tps(self, tps: int) -> None:
         self.desired_tps = tps
         self.set_update_rate(1 / tps)
-        self.timings["tick"] = deque(maxlen = self.desired_tps)
-        self.timings["tps"] = deque(maxlen = self.desired_tps * 10)
+        self.timings["tick"] = [np.zeros(self.desired_tps, dtype = np.float32), 0]
+        self.timings["tps"] = [np.zeros(self.desired_tps * 10, dtype = np.int32), 0]
 
     def set_fps(self, fps: int) -> None:
         self.desired_fps = fps
         self.set_draw_rate(1 / fps)
-        self.timings["frame"] = deque(maxlen = self.desired_fps)
-        self.timings["fps"] = deque(maxlen = self.desired_fps * 10)
+        self.timings["frame"] = [np.zeros(self.desired_fps, dtype = np.float32), 0]
+        self.timings["fps"] = [np.zeros(self.desired_fps * 10, dtype = np.int32), 0]
 
     def start_interface(self) -> None:
         upper_right_corner_layout = UIBoxLayout()
@@ -86,8 +90,7 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         upper_right_corner_layout.add(self.tps_button)
 
         self.fps_button = DynamicTextButton(
-            # min(self.fps + 1, self.desired_fps) - чтобы не было постоянного дребезжания между 59 и 60
-            text_function = lambda: f"fps: {min(self.fps + 1, self.desired_fps)} / {self.desired_fps}",
+            text_function = lambda: f"fps: {self.fps} / {self.desired_fps}",
             update_period = 0.5
         )
         upper_right_corner_layout.add(self.fps_button)
@@ -120,24 +123,22 @@ class ProjectWindow(arcade.Window, ProjectMixin):
         if self.world is not None:
             self.world.stop()
 
-    # performance: Перевести self.timings[x] на numpy?
+    def update_timing(self, timing: str, value: float | int) -> TimingArray:
+        timing_array, index = self.timings[timing]
+        timing_array[index] = value
+
+        self.timings[timing][1] = (index + 1) % timing_array.size
+        return timing_array
+
     def count_statistics_tps(self) -> None:
-        timings = self.timings["tick"]
-        timings.append(self.tick_timestamp - self.previous_tick_timestamp)
-        try:
-            self.tps = int(len(timings) / sum(timings))
-        except ZeroDivisionError:
-            self.tps = self.desired_tps
-        self.timings["tps"].append(self.tps)
+        timings = self.update_timing("tick", self.tick_timestamp - self.previous_tick_timestamp)
+        self.tps = int(timings.size / timings.sum())
+        self.update_timing("tps", self.tps)
 
     def count_statistics_fps(self) -> None:
-        timings = self.timings["frame"]
-        timings.append(self.frame_timestamp - self.previous_frame_timestamp)
-        try:
-            self.fps = int(len(timings) / sum(timings))
-        except ZeroDivisionError:
-            self.fps = self.desired_fps
-        self.timings["fps"].append(self.fps)
+        timings = self.update_timing("frame", self.frame_timestamp - self.previous_frame_timestamp)
+        self.fps = int(timings.size / timings.sum())
+        self.update_timing("fps", self.fps)
 
     def on_update(self, _: float) -> None:
         try:
