@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterable
 
 from pyglet.graphics.shader import ComputeShaderProgram, ShaderException, ShaderProgram
 from pyglet.math import Vec3
@@ -34,17 +34,35 @@ class Replacements(Singleton, ProjectMixin):
 
         self.all = {f"{key.lower()}_placeholder": value for key, value in self.__dict__.items()}
 
+    def generate_lut(self, shape: Iterable[int], vector_type: str) -> str:
+        size = 1
+        divider = 1
+        dividers = []
+        for component in shape:
+            size *= component
+            dividers.append((divider, component))
+            divider *= component
+
+        values = [
+            self.to_vector(
+                [(index // divider) % component for divider, component in dividers],
+                vector_type
+            ) for index in range(size)
+        ]
+
+        return f"{vector_type}[{size}]({", ".join(values)})"
+
     @staticmethod
-    def to_vector(vector_type: str, vector: Vec3) -> str:
+    def to_vector(vector: Iterable[int | float], vector_type: str) -> str:
         return f"{vector_type}{tuple(vector)}"
 
     @classmethod
     def to_vec3(cls, vector: Vec3) -> str:
-        return cls.to_vector("vec3", vector)
+        return cls.to_vector(vector, "vec3")
 
     @classmethod
     def to_ivec3(cls, vector: Vec3) -> str:
-        return cls.to_vector("ivec3", vector)
+        return cls.to_vector(vector, "ivec3")
 
     @classmethod
     def to_int(cls, value: int) -> str:

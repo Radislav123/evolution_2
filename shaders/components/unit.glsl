@@ -26,7 +26,6 @@ Unit new_unit() {
 }
 
 
-// performance: Заменить формулу для расчета local_position на lookup table?
 ivec3 unit_index_to_position(ivec3 cell_position, int local_index) {
     ivec3 local_position = ivec3(
     local_index % cell_shape.x,
