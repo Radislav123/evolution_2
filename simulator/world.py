@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 from pyglet import gl
 from pyglet.graphics.shader import ComputeShaderProgram, Shader, ShaderProgram
 from pyglet.math import Vec3
@@ -16,6 +17,9 @@ from simulator.substance import Substance
 
 if TYPE_CHECKING:
     from simulator.window import ProjectWindow
+
+BufferIds = ctypes.Array[ctypes.c_uint]
+Handles = npt.NDArray[np.int32]
 
 
 class UniformSetError(Exception):
@@ -147,6 +151,7 @@ class World(PhysicalObject):
 
         self.creation_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/creation.glsl"))
         self.stage_0_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_0.glsl"))
+        self.stage_1_shader = ComputeShaderProgram(load_shader(f"{self.settings.PHYSICAL_SHADERS}/stage_1.glsl"))
         self.uniform_buffer = PhysicsBuffer()
         self.init_uniform_buffer()
 
@@ -189,26 +194,26 @@ class World(PhysicalObject):
         )
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 10, buffer_id)
 
-    @staticmethod
-    def init_texture(sampler_id: int, texture_id: int, shape: Vec3) -> tuple[int, int]:
-        gl.glTextureStorage3D(texture_id, 1, gl.GL_RGBA32UI, *shape)
+    def init_texture(self, sampler_id: int, texture_ids: list[int], shape: Vec3) -> tuple[Handles, Handles]:
+        read_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
+        write_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
 
-        read_handle = gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
-        gl.glMakeTextureHandleResidentARB(read_handle)
+        for index, texture_id in enumerate(texture_ids):
+            gl.glTextureStorage3D(texture_id, 1, gl.GL_RGBA32UI, *shape)
 
-        write_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA32UI)
-        gl.glMakeImageHandleResidentARB(write_handle, gl.GL_WRITE_ONLY)
+            read_handle = gl.glGetTextureSamplerHandleARB(texture_id, sampler_id)
+            gl.glMakeTextureHandleResidentARB(read_handle)
+            read_handles[index] = read_handle
 
-        return read_handle, write_handle
+            write_handle = gl.glGetImageHandleARB(texture_id, 0, gl.GL_TRUE, 0, gl.GL_RGBA32UI)
+            gl.glMakeImageHandleResidentARB(write_handle, gl.GL_WRITE_ONLY)
+            write_handles[index] = write_handle
 
-    def init_textures(self) -> ctypes.Array[ctypes.c_uint]:
-        texture_type_count = 2
+        return read_handles, write_handles
+
+    def init_textures(self) -> BufferIds:
+        texture_type_count = 3
         texture_count = self.settings.CHUNK_COUNT * texture_type_count
-
-        read_unit_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
-        read_cell_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
-        write_unit_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
-        write_cell_handles = np.zeros(self.settings.CHUNK_COUNT, dtype = np.uint64)
 
         sampler_ids = (gl.GLuint * texture_type_count)()
         gl.glCreateSamplers(texture_type_count, sampler_ids)
@@ -223,36 +228,21 @@ class World(PhysicalObject):
         texture_ids = (gl.GLuint * texture_count)()
         gl.glCreateTextures(gl.GL_TEXTURE_3D, texture_count, texture_ids)
 
-        # Юниты
-        for index in range(self.settings.CHUNK_COUNT):
-            id_offset = self.settings.CHUNK_COUNT * 0
-            texture_id = texture_ids[id_offset + index]
-            read_handle, write_handle = self.init_texture(
-                sampler_ids[0],
-                texture_id,
-                self.shape * self.settings.CELL_SHAPE
-            )
-            read_unit_handles[index] = read_handle
-            write_unit_handles[index] = write_handle
-
-        # Ячейки
-        for index in range(self.settings.CHUNK_COUNT):
-            id_offset = self.settings.CHUNK_COUNT * 1
-            texture_id = texture_ids[id_offset + index]
-            read_handle, write_handle = self.init_texture(
-                sampler_ids[1],
-                texture_id,
-                self.shape
-            )
-            read_cell_handles[index] = read_handle
-            write_cell_handles[index] = write_handle
-
-        all_handles = (
-            read_unit_handles,
-            write_unit_handles,
-            read_cell_handles,
-            write_cell_handles
+        all_handles = []
+        shapes = (
+            self.shape * self.settings.CELL_SHAPE,
+            self.shape,
+            self.shape
         )
+        for offset, shape in enumerate(shapes):
+            read_handles, write_handles = self.init_texture(
+                sampler_ids[offset],
+                texture_ids[offset * self.settings.CHUNK_COUNT: (offset + 1) * self.settings.CHUNK_COUNT],
+                shape
+            )
+            all_handles.append(read_handles)
+            all_handles.append(write_handles)
+
         buffers_count = len(all_handles)
         buffer_ids = (gl.GLuint * buffers_count)()
         gl.glCreateBuffers(buffers_count, buffer_ids)
@@ -278,13 +268,17 @@ class World(PhysicalObject):
     def swap_textures(self) -> None:
         read_unit_buffer_id = self.texture_infos[self.texture_state][0]
         write_unit_buffer_id = self.texture_infos[not self.texture_state][1]
-        read_cell_buffer_id = self.texture_infos[self.texture_state][2]
-        write_cell_buffer_id = self.texture_infos[not self.texture_state][3]
+        read_plan_buffer_id = self.texture_infos[self.texture_state][2]
+        write_plan_buffer_id = self.texture_infos[not self.texture_state][3]
+        read_cell_buffer_id = self.texture_infos[self.texture_state][4]
+        write_cell_buffer_id = self.texture_infos[not self.texture_state][5]
 
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 0, read_unit_buffer_id)
         gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 5, write_unit_buffer_id)
-        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 1, read_cell_buffer_id)
-        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 6, write_cell_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 1, read_plan_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 6, write_plan_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 2, read_cell_buffer_id)
+        gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER, 7, write_cell_buffer_id)
 
         self.texture_state = not self.texture_state
 
@@ -292,10 +286,17 @@ class World(PhysicalObject):
         pass
 
     def compute_physics(self) -> None:
+        # todo: В текущем варианте, мне нужно каждый тик копировать все текстуры.
+        #  Подумать, какое количество текстур сделать, чтобы копировать только необходимое, а не все, если можно сократить число копирований?
         self.stage_0_shader.use()
-
         gl.glDispatchCompute(*self.settings.WORLD_GROUP_SHAPE)
         gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
+        self.swap_textures()
+
+        self.stage_1_shader.use()
+        gl.glDispatchCompute(*self.settings.WORLD_GROUP_SHAPE)
+        gl.glMemoryBarrier(gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.GL_TEXTURE_FETCH_BARRIER_BIT)
+        self.swap_textures()
 
     def on_update(self) -> None:
         futures = []
@@ -317,4 +318,3 @@ class World(PhysicalObject):
         self.compute_physics()
 
         self.age += self.settings.WORLD_UPDATE_PERIOD
-        self.swap_textures()

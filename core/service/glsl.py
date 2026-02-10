@@ -82,8 +82,9 @@ class Includes(Singleton, ProjectMixin):
         self.PACKING_CONSTANTS = f"{self.settings.SHADERS}/constants/packing.glsl"
         self.COMMON_CONSTANTS = f"{self.settings.SHADERS}/constants/common.glsl"
 
-        self.CELL_COMPONENT = f"{self.settings.SHADERS}/components/cell.glsl"
         self.UNIT_COMPONENT = f"{self.settings.SHADERS}/components/unit.glsl"
+        self.PLAN_COMPONENT = f"{self.settings.SHADERS}/components/plan.glsl"
+        self.CELL_COMPONENT = f"{self.settings.SHADERS}/components/cell.glsl"
         self.SUBSTANCE_COMPONENT = f"{self.settings.SHADERS}/components/substance.glsl"
         self.SUBSTANCE_OPTICS_COMPONENT = f"{self.settings.SHADERS}/components/substance_optics.glsl"
 
